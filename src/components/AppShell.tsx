@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { Home, Database, Building2, Play, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
-import Overview from "./pages/Overview";
-import DataExplorer from "./pages/DataExplorer";
-import Households from "./pages/Households";
-import SimulationRunner from "./pages/SimulationRunner";
-import Results from "./pages/Results";
+import Overview from "@/pages/Overview";
+import DataExplorer from "@/pages/DataExplorer";
+import Households from "@/pages/Households";
+import SimulationRunner from "@/pages/SimulationRunner";
+import Results from "@/pages/Results";
 
 type View = "overview" | "data" | "households" | "runner" | "results";
 
