@@ -1,6 +1,8 @@
 import { useState } from "react";
-import { Home, Database, Building2, Play, FileText } from "lucide-react";
+import { Home, Database, Building2, Play, FileText, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/hooks/useAuth";
+import Login from "@/pages/Login";
 import Overview from "@/pages/Overview";
 import DataExplorer from "@/pages/DataExplorer";
 import Households from "@/pages/Households";
@@ -19,6 +21,17 @@ const nav: { id: View; label: string; icon: typeof Home }[] = [
 
 export default function AppShell() {
   const [view, setView] = useState<View>("overview");
+  const { session, loading, signOut, user } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="h-2.5 w-2.5 rounded-full bg-primary animate-pulse-dot" />
+      </div>
+    );
+  }
+
+  if (!session) return <Login />;
 
   return (
     <div className="min-h-screen w-full flex bg-background">
@@ -50,11 +63,17 @@ export default function AppShell() {
           })}
         </nav>
 
-        <div className="px-6 py-5 border-t border-sidebar-border">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse-dot" />
-            Supabase: connecting...
-          </div>
+        <div className="px-3 py-4 border-t border-sidebar-border space-y-2">
+          {user?.email && (
+            <div className="px-3 text-xs text-muted-foreground truncate">{user.email}</div>
+          )}
+          <button
+            onClick={signOut}
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-full text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+          >
+            <LogOut className="h-4 w-4" />
+            Sign out
+          </button>
         </div>
       </aside>
 
