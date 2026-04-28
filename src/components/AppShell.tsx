@@ -1,19 +1,21 @@
 import { useState } from "react";
-import { Home, Database, Building2, Play, FileText, LogOut } from "lucide-react";
+import { Home, Database, Building2, Play, FileText, LogOut, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 import Login from "@/pages/Login";
 import Overview from "@/pages/Overview";
 import DataExplorer from "@/pages/DataExplorer";
+import ImportData from "@/pages/ImportData";
 import Households from "@/pages/Households";
 import SimulationRunner from "@/pages/SimulationRunner";
 import Results from "@/pages/Results";
 
-type View = "overview" | "data" | "households" | "runner" | "results";
+type View = "overview" | "data" | "import" | "households" | "runner" | "results";
 
 const nav: { id: View; label: string; icon: typeof Home }[] = [
   { id: "overview", label: "Overview", icon: Home },
   { id: "data", label: "Data Explorer", icon: Database },
+  { id: "import", label: "Import Data", icon: Download },
   { id: "households", label: "Households", icon: Building2 },
   { id: "runner", label: "Simulation Runner", icon: Play },
   { id: "results", label: "Results & Logs", icon: FileText },
@@ -81,6 +83,7 @@ export default function AppShell() {
         <div className="max-w-[1400px] mx-auto px-10 py-10">
           {view === "overview" && <Overview />}
           {view === "data" && <DataExplorer />}
+          {view === "import" && <ImportData />}
           {view === "households" && <Households />}
           {view === "runner" && <SimulationRunner />}
           {view === "results" && <Results />}
