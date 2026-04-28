@@ -14,7 +14,269 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      charging_events: {
+        Row: {
+          avg_price_sek: number | null
+          created_at: string | null
+          ended_at: string | null
+          event_type: string
+          household_id: string | null
+          id: string
+          kwh_charged: number | null
+          kwh_discharged: number | null
+          started_at: string
+        }
+        Insert: {
+          avg_price_sek?: number | null
+          created_at?: string | null
+          ended_at?: string | null
+          event_type: string
+          household_id?: string | null
+          id?: string
+          kwh_charged?: number | null
+          kwh_discharged?: number | null
+          started_at: string
+        }
+        Update: {
+          avg_price_sek?: number | null
+          created_at?: string | null
+          ended_at?: string | null
+          event_type?: string
+          household_id?: string | null
+          id?: string
+          kwh_charged?: number | null
+          kwh_discharged?: number | null
+          started_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "charging_events_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "household_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      grid_tariffs: {
+        Row: {
+          grid_company: string
+          hour_of_day: number
+          id: string
+          is_weekend: boolean
+          tariff_sek_kwh: number
+          valid_from: string
+          valid_to: string | null
+        }
+        Insert: {
+          grid_company: string
+          hour_of_day: number
+          id?: string
+          is_weekend?: boolean
+          tariff_sek_kwh: number
+          valid_from: string
+          valid_to?: string | null
+        }
+        Update: {
+          grid_company?: string
+          hour_of_day?: number
+          id?: string
+          is_weekend?: boolean
+          tariff_sek_kwh?: number
+          valid_from?: string
+          valid_to?: string | null
+        }
+        Relationships: []
+      }
+      household_profiles: {
+        Row: {
+          area_m2: number | null
+          battery_kwh: number | null
+          car_model: string | null
+          commuter_type: string | null
+          created_at: string | null
+          daily_km: number | null
+          grid_company: string | null
+          house_type: string
+          id: string
+          name: string
+          price_area: string | null
+        }
+        Insert: {
+          area_m2?: number | null
+          battery_kwh?: number | null
+          car_model?: string | null
+          commuter_type?: string | null
+          created_at?: string | null
+          daily_km?: number | null
+          grid_company?: string | null
+          house_type?: string
+          id?: string
+          name: string
+          price_area?: string | null
+        }
+        Update: {
+          area_m2?: number | null
+          battery_kwh?: number | null
+          car_model?: string | null
+          commuter_type?: string | null
+          created_at?: string | null
+          daily_km?: number | null
+          grid_company?: string | null
+          house_type?: string
+          id?: string
+          name?: string
+          price_area?: string | null
+        }
+        Relationships: []
+      }
+      optimization_logs: {
+        Row: {
+          decision: string
+          household_id: string | null
+          id: string
+          logged_at: string
+          reason: string | null
+          soc_pct: number | null
+          spot_price_sek: number | null
+        }
+        Insert: {
+          decision: string
+          household_id?: string | null
+          id?: string
+          logged_at?: string
+          reason?: string | null
+          soc_pct?: number | null
+          spot_price_sek?: number | null
+        }
+        Update: {
+          decision?: string
+          household_id?: string | null
+          id?: string
+          logged_at?: string
+          reason?: string | null
+          soc_pct?: number | null
+          spot_price_sek?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "optimization_logs_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "household_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      simulation_runs: {
+        Row: {
+          avg_price_paid: number | null
+          ended_at: string | null
+          household_id: string | null
+          id: string
+          optimization_mode: string
+          period_from: string
+          period_to: string
+          scenarios: number | null
+          started_at: string | null
+          status: string | null
+          total_saved_sek: number | null
+        }
+        Insert: {
+          avg_price_paid?: number | null
+          ended_at?: string | null
+          household_id?: string | null
+          id?: string
+          optimization_mode: string
+          period_from: string
+          period_to: string
+          scenarios?: number | null
+          started_at?: string | null
+          status?: string | null
+          total_saved_sek?: number | null
+        }
+        Update: {
+          avg_price_paid?: number | null
+          ended_at?: string | null
+          household_id?: string | null
+          id?: string
+          optimization_mode?: string
+          period_from?: string
+          period_to?: string
+          scenarios?: number | null
+          started_at?: string | null
+          status?: string | null
+          total_saved_sek?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "simulation_runs_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "household_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      spot_prices: {
+        Row: {
+          created_at: string | null
+          hour: string
+          id: string
+          price_area: string
+          price_sek_kwh: number
+          source: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          hour: string
+          id?: string
+          price_area?: string
+          price_sek_kwh: number
+          source?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          hour?: string
+          id?: string
+          price_area?: string
+          price_sek_kwh?: number
+          source?: string | null
+        }
+        Relationships: []
+      }
+      virtual_chargers: {
+        Row: {
+          created_at: string | null
+          current_soc: number | null
+          household_id: string | null
+          id: string
+          status: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          current_soc?: number | null
+          household_id?: string | null
+          id?: string
+          status?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          current_soc?: number | null
+          household_id?: string | null
+          id?: string
+          status?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "virtual_chargers_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "household_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
