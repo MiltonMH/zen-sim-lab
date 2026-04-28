@@ -66,7 +66,7 @@ export default function ImportData() {
         .filter((r) => r.SpotPriceDKK != null)
         .map((r) => ({
           hour: new Date(r.HourDK + "Z").toISOString(),
-          price_sek_kwh: Number(((r.SpotPriceDKK as number) / 1000) * eur).toFixed(5),
+          price_sek_kwh: Number((((r.SpotPriceDKK as number) / 1000) * eur).toFixed(5)),
           price_area: area,
           source: "nordpool",
         }));
