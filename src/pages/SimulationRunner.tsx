@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -7,11 +7,12 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Slider } from "@/components/ui/slider";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { CalendarIcon } from "lucide-react";
 import { format, subDays } from "date-fns";
 import type { DateRange } from "react-day-picker";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 const modes = [
   { id: "none", label: "No optimization", desc: "Baseline — charge whenever connected" },
@@ -23,6 +24,32 @@ export default function SimulationRunner() {
   const [mode, setMode] = useState("none");
   const [scenarios, setScenarios] = useState([10]);
   const [range, setRange] = useState<DateRange | undefined>({ from: subDays(new Date(), 30), to: new Date() });
+  const [households, setHouseholds] = useState<{ id: string; name: string }[]>([]);
+  const [householdId, setHouseholdId] = useState<string>("");
+  const [running, setRunning] = useState(false);
+
+  useEffect(() => {
+    supabase.from("household_profiles").select("id, name").order("created_at", { ascending: false })
+      .then(({ data }) => setHouseholds(data ?? []));
+  }, []);
+
+  const handleRun = async () => {
+    if (!householdId || !range?.from || !range?.to) return;
+    setRunning(true);
+    const { error } = await supabase.from("simulation_runs").insert({
+      household_id: householdId,
+      period_from: format(range.from, "yyyy-MM-dd"),
+      period_to: format(range.to, "yyyy-MM-dd"),
+      optimization_mode: mode,
+      scenarios: scenarios[0],
+      status: "pending",
+    });
+    setRunning(false);
+    if (error) { toast.error(error.message); return; }
+    toast.success("Simulation queued");
+  };
+
+  const canRun = householdId && range?.from && range?.to;
 
   return (
     <div className="space-y-8">
@@ -33,9 +60,13 @@ export default function SimulationRunner() {
 
       <Card className="max-w-[600px] mx-auto rounded-2xl border-border/60 shadow-card p-8 space-y-7">
         <Section title="Select household">
-          <Select disabled>
-            <SelectTrigger className="rounded-xl"><SelectValue placeholder="No households yet" /></SelectTrigger>
-            <SelectContent />
+          <Select value={householdId} onValueChange={setHouseholdId} disabled={households.length === 0}>
+            <SelectTrigger className="rounded-xl">
+              <SelectValue placeholder={households.length === 0 ? "No households yet" : "Choose a household"} />
+            </SelectTrigger>
+            <SelectContent>
+              {households.map(h => <SelectItem key={h.id} value={h.id}>{h.name}</SelectItem>)}
+            </SelectContent>
           </Select>
         </Section>
 
@@ -56,14 +87,11 @@ export default function SimulationRunner() {
         <Section title="Optimization mode">
           <RadioGroup value={mode} onValueChange={setMode} className="space-y-2">
             {modes.map((m) => (
-              <label
-                key={m.id}
-                htmlFor={m.id}
+              <label key={m.id} htmlFor={m.id}
                 className={cn(
                   "flex items-start gap-3 rounded-xl border p-4 cursor-pointer transition-colors",
                   mode === m.id ? "border-primary bg-primary-muted/40" : "border-border hover:bg-muted/40"
-                )}
-              >
+                )}>
                 <RadioGroupItem id={m.id} value={m.id} className="mt-0.5" />
                 <div>
                   <div className="text-sm font-medium">{m.label}</div>
@@ -82,17 +110,16 @@ export default function SimulationRunner() {
         </Section>
 
         <div className="space-y-2 pt-2">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span tabIndex={0} className="block">
-                <Button disabled className="w-full rounded-full bg-primary hover:bg-primary/90 text-primary-foreground h-12 text-base">
-                  Run simulation
-                </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>Create a household and load price data first</TooltipContent>
-          </Tooltip>
-          <p className="text-xs text-muted-foreground text-center">Estimated time: ~2 seconds per scenario</p>
+          <Button
+            onClick={handleRun}
+            disabled={!canRun || running}
+            className="w-full rounded-full bg-primary hover:bg-primary/90 text-primary-foreground h-12 text-base"
+          >
+            {running ? "Queuing..." : "Run simulation"}
+          </Button>
+          <p className="text-xs text-muted-foreground text-center">
+            {!householdId ? "Select a household to enable" : "Estimated time: ~2 seconds per scenario"}
+          </p>
         </div>
       </Card>
     </div>
