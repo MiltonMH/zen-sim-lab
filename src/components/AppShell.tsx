@@ -83,7 +83,7 @@ export default function AppShell() {
         return <Data initialTab={(params.tab as "spot" | "tariffs" | "import" | undefined) ?? "spot"} />;
       case "simulering":
         return (
-          <SimulationRunner
+          <Simulering
             initialMode={(params.mode as "single" | "bulk" | undefined) ?? "single"}
             preselectedHouseholdId={params.household}
           />
