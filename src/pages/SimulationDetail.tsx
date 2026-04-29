@@ -119,114 +119,138 @@ Beslut loggade: ${logs.length}`;
         </DropdownMenu>
       </div>
 
-      {/* Overview */}
-      <Card className="rounded-2xl border-border/60 shadow-card p-6 space-y-5">
-        <div className="flex items-start justify-between flex-wrap gap-3">
-          <div>
-            <h2 className="text-2xl font-semibold">{household?.name ?? "—"}</h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              {sim.period_from} → {sim.period_to} · <span className="capitalize">{sim.optimization_mode}</span>
-              {sim.scenarios > 1 && (
-                <span> · Scenario {sim.scenario_number ?? 1}/{sim.scenarios}</span>
+      <Tabs defaultValue="overview">
+        <TabsList className="rounded-full bg-muted p-1">
+          <TabsTrigger value="overview" className="rounded-full px-5">Översikt</TabsTrigger>
+          <TabsTrigger value="chart" className="rounded-full px-5">Graf</TabsTrigger>
+          <TabsTrigger value="decisions" className="rounded-full px-5">Beslut</TabsTrigger>
+          <TabsTrigger value="events" className="rounded-full px-5">Händelselogg</TabsTrigger>
+        </TabsList>
+
+        {/* ===== ÖVERSIKT ===== */}
+        <TabsContent value="overview" className="mt-6 space-y-6">
+          <Card className="rounded-2xl border-border/60 shadow-card p-6 space-y-5">
+            <div className="flex items-start justify-between flex-wrap gap-3">
+              <div>
+                <h2 className="text-2xl font-semibold">{household?.name ?? "—"}</h2>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {sim.period_from} → {sim.period_to} · <span className="capitalize">{sim.optimization_mode}</span>
+                  {sim.scenarios > 1 && (
+                    <span> · Scenario {sim.scenario_number ?? 1}/{sim.scenarios}</span>
+                  )}
+                </p>
+              </div>
+              <StatusPill status={sim.status} />
+            </div>
+
+            {sim.scenario_params && (
+              <div className="rounded-xl border border-border/40 bg-muted/30 p-4">
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Scenarioparametrar</div>
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-xs">
+                  <ParamCell label="Start-SoC" value={`${sim.scenario_params.starting_soc}%`} />
+                  <ParamCell label="Körsträcka" value={`×${sim.scenario_params.daily_km_multiplier}`} />
+                  <ParamCell label="Priströskel" value={`${sim.scenario_params.price_threshold} SEK`} />
+                  <ParamCell label="Min SoC" value={`${sim.scenario_params.min_soc}%`} />
+                  <ParamCell label="Avgång ±h" value={`${sim.scenario_params.departure_offset_hours}`} />
+                </div>
+              </div>
+            )}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <Stat label="Total besparing" value={`${num(sim.total_saved_sek)} SEK`} highlight />
+              <Stat label="Prisoptimering" value={`${num(sim.price_savings_sek)} SEK`} />
+              <Stat label="V2H sparat" value={`${num(sim.total_v2h_saving_sek)} SEK`} />
+              <Stat label="Topptimmar undvikta" value={`${sim.peak_hours_avoided ?? 0}`} />
+              <Stat label="Snittpris betalt" value={`${(Number(sim.avg_price_paid ?? 0)).toFixed(3)} SEK/kWh`} />
+              <Stat label="kWh laddat" value={summary.total_charge_kwh.toFixed(1)} />
+              <Stat label="V2H kWh" value={num(sim.total_v2h_kwh)} />
+              <Stat label="Beslut" value={logs.length.toString()} />
+            </div>
+          </Card>
+
+          <SavingsBreakdownBar
+            price={Number(sim.price_savings_sek ?? Math.max(0, Number(sim.total_saved_sek ?? 0) - Number(sim.total_v2h_saving_sek ?? 0)))}
+            v2h={Number(sim.total_v2h_saving_sek ?? 0)}
+          />
+        </TabsContent>
+
+        {/* ===== GRAF ===== */}
+        <TabsContent value="chart" className="mt-6">
+          <Card className="rounded-2xl border-border/60 shadow-card p-6">
+            <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-4">Spotpris vs laddningsbeslut</h3>
+            <div className="w-full h-[420px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                  <XAxis dataKey="t" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+                  <YAxis yAxisId="left" tick={{ fontSize: 10 }} label={{ value: "SEK/kWh", angle: -90, position: "insideLeft", style: { fontSize: 10 } }} />
+                  <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10 }} label={{ value: "kW", angle: 90, position: "insideRight", style: { fontSize: 10 } }} />
+                  <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <ReferenceLine yAxisId="left" y={1.0} stroke="hsl(0, 72%, 51%)" strokeDasharray="4 4" label={{ value: "1.0 SEK/kWh", fontSize: 10, fill: "hsl(0, 72%, 51%)" }} />
+                  <Bar yAxisId="right" dataKey="charge" name="Charge kW" fill="hsl(172, 66%, 34%)" />
+                  <Bar yAxisId="right" dataKey="v2h" name="V2H kW" fill="hsl(199, 89%, 48%)" />
+                  <Line yAxisId="left" type="monotone" dataKey="price" name="Spotpris" stroke="hsl(var(--muted-foreground))" dot={false} strokeWidth={1.5} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          </Card>
+        </TabsContent>
+
+        {/* ===== BESLUT ===== */}
+        <TabsContent value="decisions" className="mt-6">
+          <Card className="rounded-2xl border-border/60 shadow-card overflow-hidden">
+            <div className="px-6 py-4 border-b border-border/60 flex items-center justify-between gap-3 flex-wrap">
+              <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Optimeringslogg ({logs.length})</h3>
+              {logs.length > PAGE_SIZE && (
+                <div className="flex items-center gap-2 text-xs">
+                  <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => Math.max(0, p - 1))}>Föregående</Button>
+                  <span className="text-muted-foreground">Sida {page + 1} / {Math.ceil(logs.length / PAGE_SIZE)}</span>
+                  <Button variant="outline" size="sm" disabled={(page + 1) * PAGE_SIZE >= logs.length} onClick={() => setPage(p => p + 1)}>Nästa</Button>
+                </div>
               )}
-            </p>
-          </div>
-          <StatusPill status={sim.status} />
-        </div>
-
-        {sim.scenario_params && (
-          <div className="rounded-xl border border-border/40 bg-muted/30 p-4">
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Scenarioparametrar</div>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-xs">
-              <ParamCell label="Start-SoC" value={`${sim.scenario_params.starting_soc}%`} />
-              <ParamCell label="Körsträcka" value={`×${sim.scenario_params.daily_km_multiplier}`} />
-              <ParamCell label="Priströskel" value={`${sim.scenario_params.price_threshold} SEK`} />
-              <ParamCell label="Min SoC" value={`${sim.scenario_params.min_soc}%`} />
-              <ParamCell label="Avgång ±h" value={`${sim.scenario_params.departure_offset_hours}`} />
             </div>
-          </div>
-        )}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <Stat label="Total besparing" value={`${num(sim.total_saved_sek)} SEK`} highlight />
-          <Stat label="Prisoptimering" value={`${num(sim.price_savings_sek)} SEK`} />
-          <Stat label="V2H sparat" value={`${num(sim.total_v2h_saving_sek)} SEK`} />
-          <Stat label="Topptimmar undvikta" value={`${sim.peak_hours_avoided ?? 0}`} />
-          <Stat label="Snittpris betalt" value={`${(Number(sim.avg_price_paid ?? 0)).toFixed(3)} SEK/kWh`} />
-          <Stat label="kWh laddat" value={summary.total_charge_kwh.toFixed(1)} />
-          <Stat label="V2H kWh" value={num(sim.total_v2h_kwh)} />
-          <Stat label="Beslut" value={logs.length.toString()} />
-        </div>
-      </Card>
-
-      {/* Savings breakdown stacked bar */}
-      <SavingsBreakdownBar
-        price={Number(sim.price_savings_sek ?? Math.max(0, Number(sim.total_saved_sek ?? 0) - Number(sim.total_v2h_saving_sek ?? 0)))}
-        v2h={Number(sim.total_v2h_saving_sek ?? 0)}
-      />
-
-      {/* Chart */}
-      <Card className="rounded-2xl border-border/60 shadow-card p-6">
-        <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-4">Spotpris vs laddningsbeslut</h3>
-        <div className="w-full h-[320px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-              <XAxis dataKey="t" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
-              <YAxis yAxisId="left" tick={{ fontSize: 10 }} label={{ value: "SEK/kWh", angle: -90, position: "insideLeft", style: { fontSize: 10 } }} />
-              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10 }} label={{ value: "kW", angle: 90, position: "insideRight", style: { fontSize: 10 } }} />
-              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              <ReferenceLine yAxisId="left" y={1.0} stroke="hsl(0, 72%, 51%)" strokeDasharray="4 4" label={{ value: "1.0 SEK/kWh", fontSize: 10, fill: "hsl(0, 72%, 51%)" }} />
-              <Bar yAxisId="right" dataKey="charge" name="Charge kW" fill="hsl(172, 66%, 34%)" />
-              <Bar yAxisId="right" dataKey="v2h" name="V2H kW" fill="hsl(199, 89%, 48%)" />
-              <Line yAxisId="left" type="monotone" dataKey="price" name="Spotpris" stroke="hsl(var(--muted-foreground))" dot={false} strokeWidth={1.5} />
-            </ComposedChart>
-          </ResponsiveContainer>
-        </div>
-      </Card>
-
-      {/* Logs */}
-      <Card className="rounded-2xl border-border/60 shadow-card overflow-hidden">
-        <div className="px-6 py-4 border-b border-border/60 flex items-center justify-between gap-3 flex-wrap">
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Optimeringslogg ({logs.length})</h3>
-          {logs.length > PAGE_SIZE && (
-            <div className="flex items-center gap-2 text-xs">
-              <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => Math.max(0, p - 1))}>Föregående</Button>
-              <span className="text-muted-foreground">Sida {page + 1} / {Math.ceil(logs.length / PAGE_SIZE)}</span>
-              <Button variant="outline" size="sm" disabled={(page + 1) * PAGE_SIZE >= logs.length} onClick={() => setPage(p => p + 1)}>Nästa</Button>
-            </div>
-          )}
-        </div>
-        <div className="overflow-auto">
-          <Table>
-            <TableHeader className="sticky top-0 bg-background z-10">
-              <TableRow className="bg-muted/40">
-                {["Tidpunkt","Beslut","Spotpris","SoC%","Hus kW","Nät kW","V2H SEK","Poäng","Anledning"].map(h =>
-                  <TableHead key={h} className="text-xs uppercase tracking-wider font-medium">{h}</TableHead>
-                )}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {logs.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map(l => {
-                const style = decisionStyles[l.decision] ?? decisionStyles.pause;
-                return (
-                  <TableRow key={l.id} className={cn(style.row)}>
-                    <TableCell className="text-xs font-mono">{format(new Date(l.logged_at), "MM-dd HH:mm")}</TableCell>
-                    <TableCell><span className={cn("inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold", style.pill)}>{style.label}</span></TableCell>
-                    <TableCell className="text-xs font-mono">{fmt(l.spot_price_sek, 4)}</TableCell>
-                    <TableCell className="text-xs">{l.soc_pct != null ? `${Number(l.soc_pct).toFixed(0)}%` : "—"}</TableCell>
-                    <TableCell className="text-xs">{fmt(l.house_consumption_kw, 2)}</TableCell>
-                    <TableCell className="text-xs">{fmt(l.grid_draw_kw, 2)}</TableCell>
-                    <TableCell className="text-xs">{fmt(l.v2h_saving_sek, 2)}</TableCell>
-                    <TableCell className="text-xs">{fmt(l.combined_score, 3)}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{l.reason ?? "—"}</TableCell>
+            <div className="overflow-auto">
+              <Table>
+                <TableHeader className="sticky top-0 bg-background z-10">
+                  <TableRow className="bg-muted/40">
+                    {["Tidpunkt","Beslut","Spotpris","SoC%","Hus kW","Nät kW","V2H SEK","Poäng","Anledning"].map(h =>
+                      <TableHead key={h} className="text-xs uppercase tracking-wider font-medium">{h}</TableHead>
+                    )}
                   </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
-      </Card>
+                </TableHeader>
+                <TableBody>
+                  {logs.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map(l => {
+                    const style = decisionStyles[l.decision] ?? decisionStyles.pause;
+                    return (
+                      <TableRow key={l.id} className={cn(style.row)}>
+                        <TableCell className="text-xs font-mono">{format(new Date(l.logged_at), "MM-dd HH:mm")}</TableCell>
+                        <TableCell><span className={cn("inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold", style.pill)}>{style.label}</span></TableCell>
+                        <TableCell className="text-xs font-mono">{fmt(l.spot_price_sek, 4)}</TableCell>
+                        <TableCell className="text-xs">{l.soc_pct != null ? `${Number(l.soc_pct).toFixed(0)}%` : "—"}</TableCell>
+                        <TableCell className="text-xs">{fmt(l.house_consumption_kw, 2)}</TableCell>
+                        <TableCell className="text-xs">{fmt(l.grid_draw_kw, 2)}</TableCell>
+                        <TableCell className="text-xs">{fmt(l.v2h_saving_sek, 2)}</TableCell>
+                        <TableCell className="text-xs">{fmt(l.combined_score, 3)}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{l.reason ?? "—"}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </Card>
+        </TabsContent>
+
+        {/* ===== HÄNDELSELOGG ===== */}
+        <TabsContent value="events" className="mt-6">
+          <EventTimeline
+            simulationId={simulationId}
+            householdName={household?.name}
+            periodFrom={sim.period_from}
+            periodTo={sim.period_to}
+          />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
