@@ -548,7 +548,7 @@ export default function Households() {
             </Accordion>
 
             <Button type="submit" disabled={saving} className="w-full rounded-full bg-primary hover:bg-primary/90 text-primary-foreground">
-              {saving ? "Sparar..." : "Spara hushåll"}
+              {saving ? "Sparar..." : editId ? "Uppdatera hushåll" : "Spara hushåll"}
             </Button>
           </form>
         </SheetContent>
