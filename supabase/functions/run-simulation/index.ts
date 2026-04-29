@@ -207,9 +207,9 @@ Deno.serve(async (req) => {
           reason = "too_cheap_to_ignore";
         }
         // Hard rule: too expensive
-        else if (h.price > HARD_MAX_PRICE) {
+        else if (h.price > priceThreshold) {
           decision = "pause";
-          reason = "spot_above_2sek_blocked";
+          reason = `spot_above_${priceThreshold}sek_blocked`;
           if (pickedCharge.has(h.idx)) peakHoursAvoided++;
         }
         // V2H during peak window
