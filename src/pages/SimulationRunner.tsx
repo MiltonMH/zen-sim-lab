@@ -26,7 +26,9 @@ const modes = OPTIMIZATION_MODES.map((m) => ({
   requiresCcs2: m.requiresCcs2,
 }));
 
-const PRICE_THRESHOLDS = [1.5, 2.0, 2.5];
+// Tightened range: 1.8-2.2 (was 1.5-2.5) — minska scenariovariation
+const PRICE_THRESHOLDS = [1.8, 2.0, 2.2];
+const DEPARTURE_OFFSETS = [-1, 0, 1];
 const SECONDS_PER_SCENARIO = 3; // rough estimate for ETA
 
 interface ScenarioParams {
