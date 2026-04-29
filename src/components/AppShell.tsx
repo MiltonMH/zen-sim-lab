@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Home, Database, Building2, Play, FileText, LogOut, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
@@ -24,6 +24,15 @@ const nav: { id: View; label: string; icon: typeof Home }[] = [
 export default function AppShell() {
   const [view, setView] = useState<View>("overview");
   const { session, loading, signOut, user } = useAuth();
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ view: View }>).detail;
+      if (detail?.view) setView(detail.view);
+    };
+    window.addEventListener("zen:navigate", handler as EventListener);
+    return () => window.removeEventListener("zen:navigate", handler as EventListener);
+  }, []);
 
   if (loading) {
     return (
