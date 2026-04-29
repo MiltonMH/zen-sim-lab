@@ -256,31 +256,46 @@ export type Database = {
       }
       optimization_logs: {
         Row: {
+          charge_kw: number | null
+          combined_score: number | null
           decision: string
+          grid_draw_kw: number | null
+          house_consumption_kw: number | null
           household_id: string | null
           id: string
           logged_at: string
           reason: string | null
           soc_pct: number | null
           spot_price_sek: number | null
+          v2h_saving_sek: number | null
         }
         Insert: {
+          charge_kw?: number | null
+          combined_score?: number | null
           decision: string
+          grid_draw_kw?: number | null
+          house_consumption_kw?: number | null
           household_id?: string | null
           id?: string
           logged_at?: string
           reason?: string | null
           soc_pct?: number | null
           spot_price_sek?: number | null
+          v2h_saving_sek?: number | null
         }
         Update: {
+          charge_kw?: number | null
+          combined_score?: number | null
           decision?: string
+          grid_draw_kw?: number | null
+          house_consumption_kw?: number | null
           household_id?: string | null
           id?: string
           logged_at?: string
           reason?: string | null
           soc_pct?: number | null
           spot_price_sek?: number | null
+          v2h_saving_sek?: number | null
         }
         Relationships: [
           {
@@ -299,12 +314,16 @@ export type Database = {
           household_id: string | null
           id: string
           optimization_mode: string
+          peak_hours_avoided: number | null
           period_from: string
           period_to: string
+          price_savings_sek: number | null
           scenarios: number | null
           started_at: string | null
           status: string | null
           total_saved_sek: number | null
+          total_v2h_kwh: number | null
+          total_v2h_saving_sek: number | null
         }
         Insert: {
           avg_price_paid?: number | null
@@ -312,12 +331,16 @@ export type Database = {
           household_id?: string | null
           id?: string
           optimization_mode: string
+          peak_hours_avoided?: number | null
           period_from: string
           period_to: string
+          price_savings_sek?: number | null
           scenarios?: number | null
           started_at?: string | null
           status?: string | null
           total_saved_sek?: number | null
+          total_v2h_kwh?: number | null
+          total_v2h_saving_sek?: number | null
         }
         Update: {
           avg_price_paid?: number | null
@@ -325,12 +348,16 @@ export type Database = {
           household_id?: string | null
           id?: string
           optimization_mode?: string
+          peak_hours_avoided?: number | null
           period_from?: string
           period_to?: string
+          price_savings_sek?: number | null
           scenarios?: number | null
           started_at?: string | null
           status?: string | null
           total_saved_sek?: number | null
+          total_v2h_kwh?: number | null
+          total_v2h_saving_sek?: number | null
         }
         Relationships: [
           {

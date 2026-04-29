@@ -37,6 +37,7 @@ interface EvModel { id: string; brand: string; model: string; v2x_capable: boole
 interface SimRun {
   id: string; started_at: string | null; period_from: string; period_to: string;
   optimization_mode: string; total_saved_sek: number | null; status: string | null;
+  total_v2h_saving_sek: number | null; peak_hours_avoided: number | null;
 }
 
 const fmtNum = (n: number | null | undefined) => n == null ? "—" : new Intl.NumberFormat("sv-SE").format(n);
@@ -74,7 +75,7 @@ export default function HouseholdDetail({
       setH(hh as Household | null);
       const [{ data: cps }, { data: sims }] = await Promise.all([
         supabase.from("consumption_profiles").select("hour,weight").eq("household_id", householdId),
-        supabase.from("simulation_runs").select("id,started_at,period_from,period_to,optimization_mode,total_saved_sek,status").eq("household_id", householdId).order("started_at", { ascending: false }),
+        supabase.from("simulation_runs").select("id,started_at,period_from,period_to,optimization_mode,total_saved_sek,status,total_v2h_saving_sek,peak_hours_avoided").eq("household_id", householdId).order("started_at", { ascending: false }),
       ]);
       if (!active) return;
       const w = new Array(24).fill(0);
@@ -205,6 +206,8 @@ export default function HouseholdDetail({
                   <th className="pb-3 font-medium">Period</th>
                   <th className="pb-3 font-medium">Läge</th>
                   <th className="pb-3 font-medium text-right">Sparat (SEK)</th>
+                  <th className="pb-3 font-medium text-right">V2H sparad (SEK)</th>
+                  <th className="pb-3 font-medium text-right">Topptimmar undvikta</th>
                   <th className="pb-3 font-medium">Status</th>
                 </tr>
               </thead>
@@ -215,6 +218,8 @@ export default function HouseholdDetail({
                     <td className="py-3 text-muted-foreground">{r.period_from} → {r.period_to}</td>
                     <td className="py-3 capitalize">{r.optimization_mode}</td>
                     <td className="py-3 text-right font-medium">{fmtNum(r.total_saved_sek != null ? Math.round(Number(r.total_saved_sek)) : null)}</td>
+                    <td className="py-3 text-right font-medium text-sky-600">{fmtNum(r.total_v2h_saving_sek != null ? Math.round(Number(r.total_v2h_saving_sek)) : null)}</td>
+                    <td className="py-3 text-right">{fmtNum(r.peak_hours_avoided)}</td>
                     <td className="py-3"><span className="text-xs px-2 py-0.5 rounded-full bg-muted capitalize">{r.status ?? "—"}</span></td>
                   </tr>
                 ))}

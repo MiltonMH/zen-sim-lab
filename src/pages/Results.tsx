@@ -14,7 +14,17 @@ interface SimRun {
 interface OptLog {
   id: string; household_id: string; logged_at: string; decision: string;
   spot_price_sek: number | null; soc_pct: number | null; reason: string | null;
+  charge_kw: number | null; house_consumption_kw: number | null;
+  grid_draw_kw: number | null; v2h_saving_sek: number | null; combined_score: number | null;
 }
+
+const decisionStyles: Record<string, { row: string; pill: string; label: string }> = {
+  charge:            { row: "bg-emerald-500/5 hover:bg-emerald-500/10", pill: "bg-emerald-500/15 text-emerald-700", label: "Charge" },
+  v2h:               { row: "bg-sky-500/5 hover:bg-sky-500/10",         pill: "bg-sky-500/15 text-sky-700",         label: "V2H" },
+  v2g:               { row: "bg-purple-500/5 hover:bg-purple-500/10",   pill: "bg-purple-500/15 text-purple-700",   label: "V2G" },
+  pause:             { row: "bg-muted/30 hover:bg-muted/50",            pill: "bg-muted-foreground/10 text-muted-foreground", label: "Pause" },
+  emergency_charge:  { row: "bg-red-500/5 hover:bg-red-500/10",         pill: "bg-red-500/15 text-red-700",         label: "Emergency" },
+};
 
 export default function Results() {
   const [runs, setRuns] = useState<SimRun[]>([]);
@@ -112,20 +122,14 @@ export default function Results() {
                 ) : logs.length === 0 ? (
                   <TableRow><TableCell colSpan={6} className="h-32 text-center text-sm text-muted-foreground">No optimization logs yet</TableCell></TableRow>
                 ) : logs.map(l => {
-                  const isCharge = l.decision === "charge";
+                  const style = decisionStyles[l.decision] ?? decisionStyles.pause;
                   return (
-                    <TableRow
-                      key={l.id}
-                      className={cn(isCharge ? "bg-emerald-500/5 hover:bg-emerald-500/10" : "bg-muted/30 hover:bg-muted/50")}
-                    >
+                    <TableRow key={l.id} className={cn(style.row)}>
                       <TableCell className="text-sm">{format(new Date(l.logged_at), "yyyy-MM-dd HH:mm")}</TableCell>
                       <TableCell className="text-sm">{householdMap[l.household_id] ?? "—"}</TableCell>
                       <TableCell>
-                        <span className={cn(
-                          "inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold capitalize",
-                          isCharge ? "bg-emerald-500/15 text-emerald-700" : "bg-muted-foreground/10 text-muted-foreground"
-                        )}>
-                          {l.decision}
+                        <span className={cn("inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold", style.pill)}>
+                          {style.label}
                         </span>
                       </TableCell>
                       <TableCell className="text-sm font-mono">{l.spot_price_sek != null ? Number(l.spot_price_sek).toFixed(4) : "—"}</TableCell>
