@@ -28,6 +28,7 @@ export default function SimulationDetail({ simulationId, onBack }: Props) {
   const [household, setHousehold] = useState<any | null>(null);
   const [logs, setLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(0);
 
   useEffect(() => {
     let active = true;
