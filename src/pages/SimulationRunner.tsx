@@ -575,19 +575,38 @@ function BulkMode({ households, evMap, bounds }: {
             <div>
               <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Optimization mode</Label>
               <RadioGroup value={sharedMode} onValueChange={setSharedMode} className="space-y-2 mt-2.5">
-                {modes.map(m => (
-                  <label key={m.id} htmlFor={`s-${m.id}`}
-                    className={cn(
-                      "flex items-start gap-3 rounded-xl border p-3 cursor-pointer transition-colors",
-                      sharedMode === m.id ? "border-primary bg-primary-muted/40" : "border-border hover:bg-muted/40"
-                    )}>
-                    <RadioGroupItem id={`s-${m.id}`} value={m.id} className="mt-0.5" />
-                    <div>
-                      <div className="text-sm font-medium">{m.label}</div>
-                      <div className="text-xs text-muted-foreground mt-0.5">{m.desc}</div>
-                    </div>
-                  </label>
-                ))}
+                {modes.map(m => {
+                  const blockingHouseholds = m.requiresCcs2
+                    ? Array.from(selected).filter(id => {
+                        const ev = households.find(h => h.id === id)?.ev_model_id;
+                        return ev ? evMap[ev]?.ccs2_port === false : false;
+                      })
+                    : [];
+                  const disabled = blockingHouseholds.length > 0;
+                  return (
+                    <label
+                      key={m.id}
+                      htmlFor={`s-${m.id}`}
+                      title={disabled ? "Minst ett valt hushåll har en bil utan CCS2-port — inte kompatibel med Nivå 3." : m.desc}
+                      className={cn(
+                        "flex items-start gap-3 rounded-xl border p-3 transition-colors",
+                        disabled ? "opacity-50 cursor-not-allowed border-border" :
+                          sharedMode === m.id ? "border-primary bg-primary-muted/40 cursor-pointer" : "border-border hover:bg-muted/40 cursor-pointer"
+                      )}
+                    >
+                      <RadioGroupItem id={`s-${m.id}`} value={m.id} className="mt-0.5" disabled={disabled} />
+                      <div>
+                        <div className="text-sm font-medium">{m.label}</div>
+                        <div className="text-xs text-muted-foreground mt-0.5">{m.desc}</div>
+                        {disabled && (
+                          <div className="text-[11px] text-amber-600 mt-1">
+                            Kräver V2X-kapabel bil med CCS2-port hos alla valda hushåll.
+                          </div>
+                        )}
+                      </div>
+                    </label>
+                  );
+                })}
               </RadioGroup>
             </div>
             <div>
