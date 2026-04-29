@@ -328,6 +328,7 @@ Deno.serve(async (req) => {
 
     const priceSavings = totalCostBaseline - totalCostOptimized;
     const totalSaved = priceSavings + totalV2hSavingSek;
+    const savingsIncludingTariff = (totalCostBaselineWithTariff - totalCostWithTariff) + totalV2hSavingSek * VAT_MULTIPLIER;
     const avgPricePaid = totalKwhCharged > 0 ? totalCostOptimized / totalKwhCharged : 0;
 
     await supabase.from("simulation_runs").update({
@@ -338,6 +339,8 @@ Deno.serve(async (req) => {
       total_v2h_saving_sek: round2(totalV2hSavingSek),
       peak_hours_avoided: peakHoursAvoided,
       avg_price_paid: Number(avgPricePaid.toFixed(4)),
+      total_cost_with_tariff: round2(totalCostWithTariff),
+      total_saved_including_tariff: round2(savingsIncludingTariff),
       ended_at: new Date().toISOString(),
     }).eq("id", simulation_id);
 
@@ -350,6 +353,8 @@ Deno.serve(async (req) => {
       total_v2h_saving_sek: round2(totalV2hSavingSek),
       peak_hours_avoided: peakHoursAvoided,
       avg_price_paid: Number(avgPricePaid.toFixed(4)),
+      total_cost_with_tariff: round2(totalCostWithTariff),
+      total_saved_including_tariff: round2(savingsIncludingTariff),
       v2x_capable: v2xCapable,
       decisions_logged: decisionsLogged,
     }, 200);
