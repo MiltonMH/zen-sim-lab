@@ -39,6 +39,7 @@ export default function Results() {
   const [loadingL, setLoadingL] = useState(true);
   const [errR, setErrR] = useState<string | null>(null);
   const [errL, setErrL] = useState<string | null>(null);
+  const [selectedSim, setSelectedSim] = useState<string | null>(null);
 
   useEffect(() => {
     supabase.from("household_profiles").select("id, name").then(({ data }) => {
@@ -58,11 +59,33 @@ export default function Results() {
       });
   }, []);
 
+  const exportAll = async () => {
+    const { data: allLogs } = await supabase.from("optimization_logs").select("*").order("logged_at", { ascending: true });
+    const { data: hh } = await supabase.from("household_profiles").select("*");
+    const payload = { exported_at: new Date().toISOString(), simulations: runs, households: hh ?? [], decisions: allLogs ?? [] };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `zenios-all-simulations-${format(new Date(), "yyyy-MM-dd")}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast.success("Alla simuleringar exporterade");
+  };
+
+  if (selectedSim) {
+    return <SimulationDetail simulationId={selectedSim} onBack={() => setSelectedSim(null)} />;
+  }
+
   return (
     <div className="space-y-8">
-      <header>
-        <h1 className="text-3xl font-semibold tracking-tight">Results & Logs</h1>
-        <p className="text-muted-foreground mt-1.5 text-sm">Review simulation outputs and per-decision logs.</p>
+      <header className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight">Results & Logs</h1>
+          <p className="text-muted-foreground mt-1.5 text-sm">Review simulation outputs and per-decision logs.</p>
+        </div>
+        <Button variant="outline" onClick={exportAll} className="rounded-full gap-2">
+          <Download className="h-4 w-4" /> Exportera alla
+        </Button>
       </header>
 
       <Tabs defaultValue="results">
