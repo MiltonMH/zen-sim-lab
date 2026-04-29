@@ -297,7 +297,7 @@ export default function Households() {
           <h1 className="text-3xl font-semibold tracking-tight">Virtual Households</h1>
           <p className="text-muted-foreground mt-1.5 text-sm">Define households used as inputs to simulations.</p>
         </div>
-        <Button onClick={() => setOpen(true)} className="rounded-full bg-primary hover:bg-primary/90 text-primary-foreground gap-2">
+        <Button onClick={() => { resetForm(); setOpen(true); }} className="rounded-full bg-primary hover:bg-primary/90 text-primary-foreground gap-2">
           <Plus className="h-4 w-4" /> New household
         </Button>
       </header>
