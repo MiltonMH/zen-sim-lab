@@ -382,7 +382,13 @@ function PerHouseholdTab({
             <Card className="rounded-2xl border-border/60 shadow-card p-5 transition-all hover:shadow-md hover:border-primary/30">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="text-base font-semibold tracking-tight truncate">{g.name}</div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="text-base font-semibold tracking-tight truncate">{g.name}</div>
+                    {(() => {
+                      const tm = householdTypeMeta(g.household_type);
+                      return <Badge className={`text-[10px] rounded-full ${tm.className}`}>{tm.label}</Badge>;
+                    })()}
+                  </div>
                   <div className="text-[12px] text-muted-foreground mt-0.5 truncate">{meta || "—"}</div>
                   <div className="text-[12px] text-muted-foreground truncate">{carText}</div>
                 </div>
