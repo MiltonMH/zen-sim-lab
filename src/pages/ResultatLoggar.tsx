@@ -454,20 +454,50 @@ export default function ResultatLoggar({
   const [tab, setTab] = useState<View>(mapped);
   const [sims, setSims] = useState<SimRow[]>([]);
   const [households, setHouseholds] = useState<HouseholdRow[]>([]);
+  const [householdCards, setHouseholdCards] = useState<HouseholdCardData[]>([]);
   const [openId, setOpenId] = useState<string | null>(initialSimulationId ?? null);
+  const [profileHouseholdId, setProfileHouseholdId] = useState<string | null>(initialHouseholdId ?? null);
 
   useEffect(() => {
     (async () => {
-      const [{ data: simData }, { data: hhData }] = await Promise.all([
+      const [{ data: simData }, { data: hhData }, { data: evData }] = await Promise.all([
         supabase
           .from("simulation_runs")
           .select("id, household_id, period_from, period_to, optimization_mode, total_saved_sek, total_v2h_saving_sek, scenarios, status, started_at")
           .order("started_at", { ascending: false })
           .limit(500),
-        supabase.from("household_profiles").select("id, name").order("name"),
+        supabase
+          .from("household_profiles")
+          .select("id, name, house_type, area_m2, price_area, heating_type, car_model, battery_kwh, ev_model_id")
+          .order("name"),
+        supabase.from("ev_models").select("id, brand, model, battery_kwh, v2x_capable"),
       ]);
       setSims((simData ?? []) as SimRow[]);
-      setHouseholds((hhData ?? []) as HouseholdRow[]);
+      const hhRows = (hhData ?? []) as Array<HouseholdRow & {
+        house_type: string | null; area_m2: number | null; price_area: string | null;
+        heating_type: string | null; car_model: string | null; battery_kwh: number | null;
+        ev_model_id: string | null;
+      }>;
+      setHouseholds(hhRows.map((h) => ({ id: h.id, name: h.name })));
+      const evMap = new Map<string, { brand: string; model: string; battery_kwh: number; v2x_capable: boolean }>();
+      (evData ?? []).forEach((e: any) => evMap.set(e.id, e));
+      setHouseholdCards(hhRows.map((h) => {
+        const ev = h.ev_model_id ? evMap.get(h.ev_model_id) : undefined;
+        return {
+          id: h.id,
+          name: h.name,
+          house_type: h.house_type,
+          area_m2: h.area_m2,
+          price_area: h.price_area,
+          heating_type: h.heating_type,
+          car_model: h.car_model,
+          battery_kwh: h.battery_kwh,
+          ev_brand: ev?.brand ?? null,
+          ev_model: ev?.model ?? null,
+          ev_battery: ev?.battery_kwh ?? null,
+          v2x_capable: !!ev?.v2x_capable,
+        };
+      }));
     })();
   }, []);
 
@@ -476,6 +506,18 @@ export default function ResultatLoggar({
     households.forEach((h) => m.set(h.id, h.name));
     return m;
   }, [households]);
+
+  // If a household profile is selected, render the full profile page instead of the tabs.
+  if (profileHouseholdId) {
+    return (
+      <HouseholdProfile
+        householdId={profileHouseholdId}
+        onBack={() => { setProfileHouseholdId(null); setTab("households"); }}
+        onBackToResults={() => { setProfileHouseholdId(null); setTab("all"); }}
+        onOpenSimulation={(id) => setOpenId(id)}
+      />
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -510,10 +552,8 @@ export default function ResultatLoggar({
         <TabsContent value="households" className="mt-6">
           <PerHouseholdTab
             sims={sims}
-            households={households}
-            householdMap={householdMap}
-            onOpen={setOpenId}
-            autoExpandHousehold={initialHouseholdId}
+            households={householdCards}
+            onOpenHousehold={(id) => setProfileHouseholdId(id)}
           />
         </TabsContent>
         <TabsContent value="logs" className="mt-6">
