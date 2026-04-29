@@ -1,184 +1,445 @@
-import { useEffect, useState } from "react";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Download } from "lucide-react";
+import { Download, ChevronRight, Home } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import {
+  LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
+  ResponsiveContainer, Legend,
+} from "recharts";
 import SimulationDetail from "./SimulationDetail";
 
 interface SimRun {
   id: string; household_id: string; period_from: string; period_to: string;
   optimization_mode: string; total_saved_sek: number | null; avg_price_paid: number | null;
-  scenarios: number | null; status: string | null;
-  total_v2h_saving_sek?: number | null; peak_hours_avoided?: number | null; price_savings_sek?: number | null;
+  scenarios: number | null; status: string | null; started_at: string | null;
+  total_v2h_saving_sek: number | null; peak_hours_avoided: number | null; price_savings_sek: number | null;
 }
-interface OptLog {
-  id: string; household_id: string; logged_at: string; decision: string;
-  spot_price_sek: number | null; soc_pct: number | null; reason: string | null;
-  charge_kw: number | null; house_consumption_kw: number | null;
-  grid_draw_kw: number | null; v2h_saving_sek: number | null; combined_score: number | null;
+interface Household {
+  id: string; name: string; car_model: string | null; price_area: string | null;
+  routine_type: string | null; ev_model_id: string | null;
 }
 
-const decisionStyles: Record<string, { row: string; pill: string; label: string }> = {
-  charge:            { row: "bg-emerald-500/5 hover:bg-emerald-500/10", pill: "bg-emerald-500/15 text-emerald-700", label: "Charge" },
-  v2h:               { row: "bg-sky-500/5 hover:bg-sky-500/10",         pill: "bg-sky-500/15 text-sky-700",         label: "V2H" },
-  v2g:               { row: "bg-purple-500/5 hover:bg-purple-500/10",   pill: "bg-purple-500/15 text-purple-700",   label: "V2G" },
-  pause:             { row: "bg-muted/30 hover:bg-muted/50",            pill: "bg-muted-foreground/10 text-muted-foreground", label: "Pause" },
-  emergency_charge:  { row: "bg-red-500/5 hover:bg-red-500/10",         pill: "bg-red-500/15 text-red-700",         label: "Emergency" },
-};
+type Level = { kind: "overview" } | { kind: "household"; id: string } | { kind: "simulation"; id: string };
 
 export default function Results() {
+  const [level, setLevel] = useState<Level>({ kind: "overview" });
   const [runs, setRuns] = useState<SimRun[]>([]);
-  const [logs, setLogs] = useState<OptLog[]>([]);
-  const [householdMap, setHouseholdMap] = useState<Record<string, string>>({});
-  const [loadingR, setLoadingR] = useState(true);
-  const [loadingL, setLoadingL] = useState(true);
-  const [errR, setErrR] = useState<string | null>(null);
-  const [errL, setErrL] = useState<string | null>(null);
-  const [selectedSim, setSelectedSim] = useState<string | null>(null);
+  const [households, setHouseholds] = useState<Household[]>([]);
+  const [evMap, setEvMap] = useState<Record<string, { v2x_capable: boolean; brand: string; model: string }>>({});
+  const [logsCount, setLogsCount] = useState<number>(0);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase.from("household_profiles").select("id, name").then(({ data }) => {
-      const map: Record<string, string> = {};
-      (data ?? []).forEach((h: { id: string; name: string }) => { map[h.id] = h.name; });
-      setHouseholdMap(map);
-    });
-    supabase.from("simulation_runs").select("*").order("started_at", { ascending: false }).limit(100)
-      .then(({ data, error }) => {
-        if (error) setErrR(error.message); else setRuns((data ?? []) as SimRun[]);
-        setLoadingR(false);
-      });
-    supabase.from("optimization_logs").select("*").order("logged_at", { ascending: false }).limit(500)
-      .then(({ data, error }) => {
-        if (error) setErrL(error.message); else setLogs((data ?? []) as OptLog[]);
-        setLoadingL(false);
-      });
+    (async () => {
+      setLoading(true);
+      const [{ data: r }, { data: h }, { data: ev }, { count }] = await Promise.all([
+        supabase.from("simulation_runs").select("*").order("started_at", { ascending: false }),
+        supabase.from("household_profiles").select("id,name,car_model,price_area,routine_type,ev_model_id"),
+        supabase.from("ev_models").select("id,brand,model,v2x_capable"),
+        supabase.from("optimization_logs").select("*", { count: "exact", head: true }),
+      ]);
+      setRuns((r ?? []) as SimRun[]);
+      setHouseholds((h ?? []) as Household[]);
+      const m: Record<string, any> = {};
+      (ev ?? []).forEach((e: any) => { m[e.id] = e; });
+      setEvMap(m);
+      setLogsCount(count ?? 0);
+      setLoading(false);
+    })();
   }, []);
 
-  const exportAll = async () => {
-    const { data: allLogs } = await supabase.from("optimization_logs").select("*").order("logged_at", { ascending: true });
-    const { data: hh } = await supabase.from("household_profiles").select("*");
-    const payload = { exported_at: new Date().toISOString(), simulations: runs, households: hh ?? [], decisions: allLogs ?? [] };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `zenios-all-simulations-${format(new Date(), "yyyy-MM-dd")}.json`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-    toast.success("Alla simuleringar exporterade");
-  };
+  const householdMap = useMemo(() => {
+    const m: Record<string, Household> = {};
+    households.forEach(h => { m[h.id] = h; });
+    return m;
+  }, [households]);
 
-  if (selectedSim) {
-    return <SimulationDetail simulationId={selectedSim} onBack={() => setSelectedSim(null)} />;
+  if (level.kind === "simulation") {
+    const sim = runs.find(r => r.id === level.id);
+    return (
+      <div className="space-y-4">
+        <Breadcrumbs
+          items={[
+            { label: "Results", onClick: () => setLevel({ kind: "overview" }) },
+            ...(sim ? [{ label: householdMap[sim.household_id]?.name ?? "—", onClick: () => setLevel({ kind: "household", id: sim.household_id }) }] : []),
+            { label: sim ? format(new Date(sim.started_at ?? sim.period_from), "yyyy-MM-dd HH:mm") : "Simulering" },
+          ]}
+        />
+        <SimulationDetail simulationId={level.id} onBack={() => setLevel(sim ? { kind: "household", id: sim.household_id } : { kind: "overview" })} />
+      </div>
+    );
   }
+
+  if (level.kind === "household") {
+    return (
+      <HouseholdLevel
+        household={householdMap[level.id]}
+        ev={householdMap[level.id]?.ev_model_id ? evMap[householdMap[level.id].ev_model_id!] : undefined}
+        runs={runs.filter(r => r.household_id === level.id)}
+        onBack={() => setLevel({ kind: "overview" })}
+        onPickSim={(id) => setLevel({ kind: "simulation", id })}
+      />
+    );
+  }
+
+  return (
+    <OverviewLevel
+      runs={runs}
+      households={households}
+      householdMap={householdMap}
+      logsCount={logsCount}
+      loading={loading}
+      onPickHousehold={(id) => setLevel({ kind: "household", id })}
+      onPickSim={(id) => setLevel({ kind: "simulation", id })}
+    />
+  );
+}
+
+/* ======================== LEVEL 1 ======================== */
+function OverviewLevel({
+  runs, households, householdMap, logsCount, loading, onPickHousehold, onPickSim,
+}: {
+  runs: SimRun[]; households: Household[]; householdMap: Record<string, Household>;
+  logsCount: number; loading: boolean;
+  onPickHousehold: (id: string) => void; onPickSim: (id: string) => void;
+}) {
+  const totalSaved = sum(runs.map(r => Number(r.total_saved_sek ?? 0)));
+  const totalV2h = sum(runs.map(r => Number(r.total_v2h_saving_sek ?? 0)));
+  const avgSaved = runs.length ? totalSaved / runs.length : 0;
+
+  const cumulative = useMemo(() => {
+    const sorted = [...runs].filter(r => r.started_at)
+      .sort((a, b) => +new Date(a.started_at!) - +new Date(b.started_at!));
+    let acc = 0;
+    return sorted.map(r => {
+      acc += Number(r.total_saved_sek ?? 0);
+      return { t: format(new Date(r.started_at!), "MM-dd HH:mm"), saved: Number(acc.toFixed(2)) };
+    });
+  }, [runs]);
+
+  const householdRows = useMemo(() => {
+    return households.map(h => {
+      const hr = runs.filter(r => r.household_id === h.id);
+      const total = sum(hr.map(r => Number(r.total_saved_sek ?? 0)));
+      const v2h = sum(hr.map(r => Number(r.total_v2h_saving_sek ?? 0)));
+      const best = hr.reduce((m, r) => Math.max(m, Number(r.total_saved_sek ?? 0)), 0);
+      const last = hr.reduce<string | null>((m, r) => {
+        const t = r.started_at;
+        if (!t) return m;
+        return !m || t > m ? t : m;
+      }, null);
+      return { household: h, count: hr.length, total, v2h, best, last };
+    }).sort((a, b) => b.total - a.total);
+  }, [households, runs]);
+
+  const exportAllJson = async () => {
+    const { data: allLogs } = await supabase.from("optimization_logs").select("*").order("logged_at", { ascending: true });
+    const payload = { exported_at: new Date().toISOString(), simulations: runs, households, decisions: allLogs ?? [] };
+    downloadBlob(JSON.stringify(payload, null, 2), `zenios-all-${format(new Date(), "yyyy-MM-dd")}.json`, "application/json");
+    toast.success("Exporterat som JSON");
+  };
+  const exportAllCsv = () => {
+    const cols = ["id","household","period_from","period_to","optimization_mode","status","total_saved_sek","price_savings_sek","total_v2h_saving_sek","peak_hours_avoided","avg_price_paid","started_at"];
+    const header = cols.join(",");
+    const rows = runs.map(r => [
+      r.id, householdMap[r.household_id]?.name ?? "", r.period_from, r.period_to,
+      r.optimization_mode, r.status ?? "", r.total_saved_sek ?? "", r.price_savings_sek ?? "",
+      r.total_v2h_saving_sek ?? "", r.peak_hours_avoided ?? "", r.avg_price_paid ?? "", r.started_at ?? "",
+    ].map(csvCell).join(","));
+    downloadBlob([header, ...rows].join("\n"), `zenios-all-${format(new Date(), "yyyy-MM-dd")}.csv`, "text/csv");
+    toast.success("Exporterat som CSV");
+  };
 
   return (
     <div className="space-y-8">
       <header className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">Results & Logs</h1>
-          <p className="text-muted-foreground mt-1.5 text-sm">Review simulation outputs and per-decision logs.</p>
+          <p className="text-muted-foreground mt-1.5 text-sm">Översikt av alla simuleringar och optimeringsbeslut.</p>
         </div>
-        <Button variant="outline" onClick={exportAll} className="rounded-full gap-2">
-          <Download className="h-4 w-4" /> Exportera alla
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={exportAllJson} className="rounded-full gap-2"><Download className="h-4 w-4" /> Exportera alla (JSON)</Button>
+          <Button variant="outline" onClick={exportAllCsv} className="rounded-full gap-2"><Download className="h-4 w-4" /> Exportera alla (CSV)</Button>
+        </div>
       </header>
 
-      <Tabs defaultValue="results">
-        <TabsList className="rounded-full bg-muted p-1">
-          <TabsTrigger value="results" className="rounded-full px-6">Simulation results</TabsTrigger>
-          <TabsTrigger value="logs" className="rounded-full px-6">Optimization logs</TabsTrigger>
-        </TabsList>
+      {/* Stat cards */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <StatCard label="Totala simuleringar" value={runs.length.toString()} />
+        <StatCard label="Total besparing" value={`${totalSaved.toFixed(2)} SEK`} tone="emerald" />
+        <StatCard label="Genomsnittlig besparing" value={`${avgSaved.toFixed(2)} SEK`} />
+        <StatCard label="Totalt V2H" value={`${totalV2h.toFixed(2)} SEK`} tone="sky" />
+        <StatCard label="Beslut loggade" value={logsCount.toString()} />
+      </div>
 
-        <TabsContent value="results" className="mt-6">
-          <Card className="rounded-2xl border-border/60 shadow-card overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-muted/40">
-                  {["ID","Household","Period","Mode","Total saved (SEK)","Avg price","Status"].map(h => (
-                    <TableHead key={h} className="text-xs uppercase tracking-wider font-medium">{h}</TableHead>
-                  ))}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loadingR ? (
-                  <TableRow><TableCell colSpan={7} className="h-32 text-center text-sm text-muted-foreground">Loading...</TableCell></TableRow>
-                ) : errR ? (
-                  <TableRow><TableCell colSpan={7} className="h-32 text-center text-sm text-destructive">Error: {errR}</TableCell></TableRow>
-                ) : runs.length === 0 ? (
-                  <TableRow><TableCell colSpan={7} className="h-32 text-center text-sm text-muted-foreground">No results yet — run a simulation</TableCell></TableRow>
-                ) : runs.map(r => {
-                  const saved = r.total_saved_sek != null ? Number(r.total_saved_sek) : null;
-                  return (
-                    <TableRow key={r.id} onClick={() => setSelectedSim(r.id)} className="cursor-pointer hover:bg-muted/40 transition-colors">
-                      <TableCell className="font-mono text-xs">{r.id.slice(0, 8)}</TableCell>
-                      <TableCell className="text-sm">{householdMap[r.household_id] ?? "—"}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{r.period_from} → {r.period_to}</TableCell>
-                      <TableCell className="text-sm capitalize">{r.optimization_mode}</TableCell>
-                      <TableCell className={cn("text-sm font-semibold", saved != null && saved > 0 && "text-emerald-600")}>
-                        {saved != null ? saved.toFixed(2) : "—"}
-                      </TableCell>
-                      <TableCell className="text-sm">{r.avg_price_paid != null ? Number(r.avg_price_paid).toFixed(4) : "—"}</TableCell>
-                      <TableCell><StatusPill status={r.status} /></TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </Card>
-        </TabsContent>
+      {/* Cumulative chart */}
+      <Card className="rounded-2xl border-border/60 shadow-card p-6">
+        <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-4">Ackumulerad besparing över tid</h3>
+        <div className="w-full h-[280px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={cumulative}>
+              <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+              <XAxis dataKey="t" tick={{ fontSize: 10 }} />
+              <YAxis tick={{ fontSize: 10 }} label={{ value: "SEK", angle: -90, position: "insideLeft", style: { fontSize: 10 } }} />
+              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+              <Line type="monotone" dataKey="saved" name="Ackumulerat sparat" stroke="hsl(172, 66%, 34%)" strokeWidth={2} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </Card>
 
-        <TabsContent value="logs" className="mt-6">
-          <Card className="rounded-2xl border-border/60 shadow-card overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-muted/40">
-                  {["Timestamp","Household","Decision","Spot price","SoC %","Reason"].map(h => (
-                    <TableHead key={h} className="text-xs uppercase tracking-wider font-medium">{h}</TableHead>
-                  ))}
+      {/* Households summary table */}
+      <Card className="rounded-2xl border-border/60 shadow-card overflow-hidden">
+        <div className="px-6 py-4 border-b border-border/60">
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Hushåll</h3>
+        </div>
+        <Table>
+          <TableHeader>
+            <TableRow className="bg-muted/40">
+              {["Hushåll","Simuleringar","Total sparat","Bästa simulering","V2H sparat","Senast körd",""].map(h =>
+                <TableHead key={h} className="text-xs uppercase tracking-wider font-medium">{h}</TableHead>
+              )}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              <TableRow><TableCell colSpan={7} className="h-24 text-center text-sm text-muted-foreground">Laddar…</TableCell></TableRow>
+            ) : householdRows.length === 0 ? (
+              <TableRow><TableCell colSpan={7} className="h-24 text-center text-sm text-muted-foreground">Inga hushåll</TableCell></TableRow>
+            ) : householdRows.map(row => (
+              <TableRow key={row.household.id} onClick={() => onPickHousehold(row.household.id)} className="cursor-pointer hover:bg-muted/40">
+                <TableCell className="font-medium">{row.household.name}</TableCell>
+                <TableCell>{row.count}</TableCell>
+                <TableCell className={cn("font-semibold", row.total > 0 && "text-emerald-600")}>{row.total.toFixed(2)} SEK</TableCell>
+                <TableCell>{row.best.toFixed(2)} SEK</TableCell>
+                <TableCell className="text-sky-600">{row.v2h.toFixed(2)} SEK</TableCell>
+                <TableCell className="text-sm text-muted-foreground">{row.last ? format(new Date(row.last), "yyyy-MM-dd HH:mm") : "—"}</TableCell>
+                <TableCell><ChevronRight className="h-4 w-4 text-muted-foreground" /></TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Card>
+
+      {/* All simulations */}
+      <Card className="rounded-2xl border-border/60 shadow-card overflow-hidden">
+        <div className="px-6 py-4 border-b border-border/60">
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Alla simuleringar</h3>
+        </div>
+        <Table>
+          <TableHeader>
+            <TableRow className="bg-muted/40">
+              {["Datum","Hushåll","Period","Läge","Sparat (SEK)","V2H (SEK)","Status"].map(h =>
+                <TableHead key={h} className="text-xs uppercase tracking-wider font-medium">{h}</TableHead>
+              )}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              <TableRow><TableCell colSpan={7} className="h-24 text-center text-sm text-muted-foreground">Laddar…</TableCell></TableRow>
+            ) : runs.length === 0 ? (
+              <TableRow><TableCell colSpan={7} className="h-24 text-center text-sm text-muted-foreground">Inga simuleringar än</TableCell></TableRow>
+            ) : runs.map(r => {
+              const saved = Number(r.total_saved_sek ?? 0);
+              const v2h = Number(r.total_v2h_saving_sek ?? 0);
+              return (
+                <TableRow key={r.id} onClick={() => onPickSim(r.id)} className="cursor-pointer hover:bg-muted/40">
+                  <TableCell className="text-sm">{r.started_at ? format(new Date(r.started_at), "yyyy-MM-dd HH:mm") : "—"}</TableCell>
+                  <TableCell className="text-sm">{householdMap[r.household_id]?.name ?? "—"}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{r.period_from} → {r.period_to}</TableCell>
+                  <TableCell className="text-sm capitalize">{r.optimization_mode}</TableCell>
+                  <TableCell className={cn("text-sm font-semibold", saved > 0 && "text-emerald-600")}>{saved.toFixed(2)}</TableCell>
+                  <TableCell className="text-sm text-sky-600">{v2h.toFixed(2)}</TableCell>
+                  <TableCell><StatusPill status={r.status} /></TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loadingL ? (
-                  <TableRow><TableCell colSpan={6} className="h-32 text-center text-sm text-muted-foreground">Loading...</TableCell></TableRow>
-                ) : errL ? (
-                  <TableRow><TableCell colSpan={6} className="h-32 text-center text-sm text-destructive">Error: {errL}</TableCell></TableRow>
-                ) : logs.length === 0 ? (
-                  <TableRow><TableCell colSpan={6} className="h-32 text-center text-sm text-muted-foreground">No optimization logs yet</TableCell></TableRow>
-                ) : logs.map(l => {
-                  const style = decisionStyles[l.decision] ?? decisionStyles.pause;
-                  return (
-                    <TableRow key={l.id} className={cn(style.row)}>
-                      <TableCell className="text-sm">{format(new Date(l.logged_at), "yyyy-MM-dd HH:mm")}</TableCell>
-                      <TableCell className="text-sm">{householdMap[l.household_id] ?? "—"}</TableCell>
-                      <TableCell>
-                        <span className={cn("inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold", style.pill)}>
-                          {style.label}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-sm font-mono">{l.spot_price_sek != null ? Number(l.spot_price_sek).toFixed(4) : "—"}</TableCell>
-                      <TableCell className="text-sm">{l.soc_pct != null ? `${Number(l.soc_pct).toFixed(0)}%` : "—"}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{l.reason ?? "—"}</TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </Card>
-        </TabsContent>
-      </Tabs>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </Card>
     </div>
   );
 }
 
+/* ======================== LEVEL 2 ======================== */
+function HouseholdLevel({
+  household, ev, runs, onBack, onPickSim,
+}: {
+  household: Household | undefined; ev?: { v2x_capable: boolean; brand: string; model: string };
+  runs: SimRun[]; onBack: () => void; onPickSim: (id: string) => void;
+}) {
+  if (!household) {
+    return (
+      <div className="space-y-4">
+        <Breadcrumbs items={[{ label: "Results", onClick: onBack }, { label: "Hushåll" }]} />
+        <Card className="rounded-2xl p-12 text-center text-muted-foreground">Hushåll hittades inte</Card>
+      </div>
+    );
+  }
+
+  const totalSaved = sum(runs.map(r => Number(r.total_saved_sek ?? 0)));
+  const totalV2h = sum(runs.map(r => Number(r.total_v2h_saving_sek ?? 0)));
+  const best = runs.reduce((m, r) => Math.max(m, Number(r.total_saved_sek ?? 0)), 0);
+
+  const chartData = useMemo(() =>
+    [...runs].filter(r => r.started_at).sort((a, b) => +new Date(a.started_at!) - +new Date(b.started_at!))
+      .map(r => ({
+        t: format(new Date(r.started_at!), "MM-dd"),
+        price: Number(r.price_savings_sek ?? Math.max(0, Number(r.total_saved_sek ?? 0) - Number(r.total_v2h_saving_sek ?? 0))),
+        v2h: Number(r.total_v2h_saving_sek ?? 0),
+      })), [runs]);
+
+  const exportJson = () => {
+    const payload = { exported_at: new Date().toISOString(), household, simulations: runs };
+    downloadBlob(JSON.stringify(payload, null, 2), `zenios-${household.name}-${format(new Date(), "yyyy-MM-dd")}.json`, "application/json");
+    toast.success("Exporterat som JSON");
+  };
+  const exportCsv = () => {
+    const cols = ["id","period_from","period_to","optimization_mode","status","total_saved_sek","price_savings_sek","total_v2h_saving_sek","peak_hours_avoided","avg_price_paid","started_at"];
+    const rows = runs.map(r => cols.map(c => csvCell((r as any)[c])).join(","));
+    downloadBlob([cols.join(","), ...rows].join("\n"), `zenios-${household.name}-${format(new Date(), "yyyy-MM-dd")}.csv`, "text/csv");
+    toast.success("Exporterat som CSV");
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <Breadcrumbs items={[{ label: "Results", onClick: onBack }, { label: household.name }]} />
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={exportJson} className="rounded-full gap-2"><Download className="h-4 w-4" /> Exportera hushåll (JSON)</Button>
+          <Button variant="outline" onClick={exportCsv} className="rounded-full gap-2"><Download className="h-4 w-4" /> Exportera hushåll (CSV)</Button>
+        </div>
+      </div>
+
+      {/* Header card */}
+      <Card className="rounded-2xl border-border/60 shadow-card p-6">
+        <div className="flex items-start gap-4 flex-wrap">
+          <div className="rounded-xl bg-muted p-3"><Home className="h-5 w-5" /></div>
+          <div className="flex-1">
+            <h2 className="text-2xl font-semibold">{household.name}</h2>
+            <div className="flex flex-wrap gap-2 mt-2 text-xs">
+              {(ev || household.car_model) && <span className="rounded-full bg-muted px-2.5 py-1">{ev ? `${ev.brand} ${ev.model}` : household.car_model}</span>}
+              {ev?.v2x_capable && <span className="rounded-full bg-sky-500/15 text-sky-700 px-2.5 py-1 font-semibold">V2X</span>}
+              {household.price_area && <span className="rounded-full bg-muted px-2.5 py-1">{household.price_area}</span>}
+              {household.routine_type && <span className="rounded-full bg-muted px-2.5 py-1 capitalize">{household.routine_type}</span>}
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* Stat cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StatCard label="Antal simuleringar" value={runs.length.toString()} />
+        <StatCard label="Total besparing" value={`${totalSaved.toFixed(2)} SEK`} tone="emerald" />
+        <StatCard label="Bästa simulering" value={`${best.toFixed(2)} SEK`} />
+        <StatCard label="Total V2H" value={`${totalV2h.toFixed(2)} SEK`} tone="sky" />
+      </div>
+
+      {/* Chart */}
+      <Card className="rounded-2xl border-border/60 shadow-card p-6">
+        <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-4">Besparing per simulering</h3>
+        <div className="w-full h-[300px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+              <XAxis dataKey="t" tick={{ fontSize: 10 }} />
+              <YAxis tick={{ fontSize: 10 }} label={{ value: "SEK", angle: -90, position: "insideLeft", style: { fontSize: 10 } }} />
+              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Bar dataKey="price" name="Prisoptimering" stackId="a" fill="hsl(172, 66%, 34%)" />
+              <Bar dataKey="v2h" name="V2H" stackId="a" fill="hsl(199, 89%, 48%)" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </Card>
+
+      {/* Simulations table */}
+      <Card className="rounded-2xl border-border/60 shadow-card overflow-hidden">
+        <Table>
+          <TableHeader>
+            <TableRow className="bg-muted/40">
+              {["Datum","Period","Läge","Sparat","V2H","Topptimmar undvikta","Status"].map(h =>
+                <TableHead key={h} className="text-xs uppercase tracking-wider font-medium">{h}</TableHead>
+              )}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {runs.length === 0 ? (
+              <TableRow><TableCell colSpan={7} className="h-24 text-center text-sm text-muted-foreground">Inga simuleringar för detta hushåll</TableCell></TableRow>
+            ) : runs.map(r => {
+              const saved = Number(r.total_saved_sek ?? 0);
+              return (
+                <TableRow key={r.id} onClick={() => onPickSim(r.id)} className="cursor-pointer hover:bg-muted/40">
+                  <TableCell className="text-sm">{r.started_at ? format(new Date(r.started_at), "yyyy-MM-dd HH:mm") : "—"}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{r.period_from} → {r.period_to}</TableCell>
+                  <TableCell className="text-sm capitalize">{r.optimization_mode}</TableCell>
+                  <TableCell className={cn("text-sm font-semibold", saved > 0 && "text-emerald-600")}>{saved.toFixed(2)}</TableCell>
+                  <TableCell className="text-sm text-sky-600">{Number(r.total_v2h_saving_sek ?? 0).toFixed(2)}</TableCell>
+                  <TableCell className="text-sm">{r.peak_hours_avoided ?? 0}</TableCell>
+                  <TableCell><StatusPill status={r.status} /></TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </Card>
+    </div>
+  );
+}
+
+/* ======================== Shared bits ======================== */
+function Breadcrumbs({ items }: { items: { label: string; onClick?: () => void }[] }) {
+  return (
+    <nav className="flex items-center gap-1.5 text-sm text-muted-foreground">
+      {items.map((it, i) => (
+        <span key={i} className="flex items-center gap-1.5">
+          {i > 0 && <ChevronRight className="h-3.5 w-3.5" />}
+          {it.onClick ? (
+            <button onClick={it.onClick} className="hover:text-foreground transition-colors">{it.label}</button>
+          ) : (
+            <span className="text-foreground font-medium">{it.label}</span>
+          )}
+        </span>
+      ))}
+    </nav>
+  );
+}
+function StatCard({ label, value, tone }: { label: string; value: string; tone?: "emerald" | "sky" }) {
+  return (
+    <Card className="rounded-2xl border-border/60 shadow-card p-5">
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className={cn(
+        "font-semibold text-2xl mt-2",
+        tone === "emerald" && "text-emerald-600",
+        tone === "sky" && "text-sky-600",
+      )}>{value}</div>
+    </Card>
+  );
+}
 function StatusPill({ status }: { status: string | null }) {
   const tone = status === "completed" ? "bg-emerald-500/15 text-emerald-700"
     : status === "failed" ? "bg-destructive/15 text-destructive"
     : status === "running" ? "bg-amber-500/15 text-amber-700"
     : "bg-muted text-muted-foreground";
   return <span className={cn("inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold capitalize", tone)}>{status ?? "—"}</span>;
+}
+
+/* ======================== utils ======================== */
+function sum(xs: number[]) { return xs.reduce((a, b) => a + b, 0); }
+function csvCell(v: any) {
+  if (v == null) return "";
+  const s = String(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+function downloadBlob(content: string, filename: string, mime: string) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
 }
