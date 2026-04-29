@@ -318,6 +318,8 @@ export type Database = {
           period_from: string
           period_to: string
           price_savings_sek: number | null
+          scenario_number: number
+          scenario_params: Json | null
           scenarios: number | null
           started_at: string | null
           status: string | null
@@ -335,6 +337,8 @@ export type Database = {
           period_from: string
           period_to: string
           price_savings_sek?: number | null
+          scenario_number?: number
+          scenario_params?: Json | null
           scenarios?: number | null
           started_at?: string | null
           status?: string | null
@@ -352,6 +356,8 @@ export type Database = {
           period_from?: string
           period_to?: string
           price_savings_sek?: number | null
+          scenario_number?: number
+          scenario_params?: Json | null
           scenarios?: number | null
           started_at?: string | null
           status?: string | null

@@ -12,11 +12,12 @@ const V2H_KW = 7;                 // conservative discharge during peak
 const TARGET_CHARGE_HOURS = 8;    // hours/day to charge
 const KM_PER_PCT = 5;             // km per % battery
 const PEAK_HOURS = new Set([17, 18, 19, 20]); // V2H window 17-21 (4 hours)
-const HARD_MAX_PRICE = 2.0;       // never charge above this
+const DEFAULT_HARD_MAX_PRICE = 2.0;       // default never-charge threshold
 const TOO_CHEAP_PRICE = 0.20;     // always charge below this
-const SOC_EMERGENCY = 20;         // force charge below this
+const DEFAULT_SOC_EMERGENCY = 20;         // force charge below this
 const SOC_PROTECT = 95;           // never charge above this
 const BASELINE_HOURS = [20, 21, 22, 23, 0, 1, 2, 3]; // unoptimized fixed window 20-04
+const PRICE_THRESHOLDS = [1.5, 2.0, 2.5];
 
 // Default consumption weights (pendlare style) if profile missing
 const DEFAULT_WEIGHTS = [
@@ -54,11 +55,20 @@ Deno.serve(async (req) => {
     if (hErr || !hh) return failSim(supabase, simulation_id, "Household not found", 404);
 
     const batteryKwh = Number(hh.battery_kwh) || 60;
-    const dailyKm = Number(hh.daily_km) || 30;
+    const baseDailyKm = Number(hh.daily_km) || 30;
     const priceArea = hh.price_area || "SE3";
     const annualKwh = Number(hh.annual_kwh) || 18000;
     const avgHouseKw = annualKwh / 8760; // average house draw
 
+    // --- Scenario parameters (use stored, else defaults for scenario 1) ---
+    const sp = (sim.scenario_params ?? {}) as Record<string, number>;
+    const startingSoc = clamp(num(sp.starting_soc, 50), 5, 100);
+    const dailyKmMul = clamp(num(sp.daily_km_multiplier, 1.0), 0.1, 3.0);
+    const priceThreshold = clamp(num(sp.price_threshold, DEFAULT_HARD_MAX_PRICE), 0.5, 10);
+    const minSoc = clamp(num(sp.min_soc, DEFAULT_SOC_EMERGENCY), 5, 80);
+    // departure_offset_hours kept in params for traceability; not yet used for routing rules
+
+    const dailyKm = baseDailyKm * dailyKmMul;
     const dailyKwhNeeded = (dailyKm / KM_PER_PCT) * batteryKwh / 100;
 
     // 2b. EV V2X capability
@@ -135,7 +145,7 @@ Deno.serve(async (req) => {
     let totalV2hSavingSek = 0;
     let peakHoursAvoided = 0;
     let decisionsLogged = 0;
-    let soc = 50;
+    let soc = startingSoc;
 
     const logsBatch: Array<Record<string, unknown>> = [];
     const sortedDays = Array.from(byDay.keys()).sort();
@@ -180,7 +190,7 @@ Deno.serve(async (req) => {
         let gridDrawKw = hourConsKw;
 
         // Hard rule: emergency charge
-        if (soc < SOC_EMERGENCY) {
+        if (soc < minSoc) {
           decision = "emergency_charge";
           chargeKw = CHARGE_KW;
           reason = "soc_below_20_emergency";
@@ -197,9 +207,9 @@ Deno.serve(async (req) => {
           reason = "too_cheap_to_ignore";
         }
         // Hard rule: too expensive
-        else if (h.price > HARD_MAX_PRICE) {
+        else if (h.price > priceThreshold) {
           decision = "pause";
-          reason = "spot_above_2sek_blocked";
+          reason = `spot_above_${priceThreshold}sek_blocked`;
           if (pickedCharge.has(h.idx)) peakHoursAvoided++;
         }
         // V2H during peak window
@@ -263,10 +273,13 @@ Deno.serve(async (req) => {
       totalCostOptimized += dayChargeCost;
     }
 
-    // Replace prior logs in window
-    await supabase.from("optimization_logs").delete()
-      .eq("household_id", sim.household_id)
-      .gte("logged_at", fromIso).lte("logged_at", toIso);
+    // Only the first scenario clears prior logs in the window;
+    // subsequent scenarios append so the household's full distribution is visible.
+    if ((sim.scenario_number ?? 1) === 1) {
+      await supabase.from("optimization_logs").delete()
+        .eq("household_id", sim.household_id)
+        .gte("logged_at", fromIso).lte("logged_at", toIso);
+    }
 
     for (let i = 0; i < logsBatch.length; i += 500) {
       const chunk = logsBatch.slice(i, i + 500);
@@ -317,6 +330,8 @@ async function failSim(supabase: any, id: string, msg: string, status: number) {
   return json({ error: msg }, status);
 }
 function round2(n: number) { return Number(n.toFixed(2)); }
+function num(v: unknown, d: number) { const n = Number(v); return Number.isFinite(n) ? n : d; }
+function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)); }
 function stockholmDay(iso: string): string {
   return new Intl.DateTimeFormat("sv-SE", {
     timeZone: "Europe/Stockholm", year: "numeric", month: "2-digit", day: "2-digit",
