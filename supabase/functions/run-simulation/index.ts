@@ -248,8 +248,15 @@ Deno.serve(async (req) => {
         let v2hSaving = 0;
         let gridDrawKw = hourConsKw;
 
-        // Hard rule: emergency charge
-        if (soc < minSoc) {
+        const connected = isConnectedHour(h.hourOfDay);
+
+        // Hard rule: car not at home → can't charge or discharge
+        if (!connected) {
+          decision = "pause";
+          reason = "cable_disconnected";
+        }
+        // Hard rule: emergency charge (only if connected)
+        else if (soc < minSoc) {
           decision = "emergency_charge";
           chargeKw = CHARGE_KW;
           reason = "soc_below_20_emergency";
