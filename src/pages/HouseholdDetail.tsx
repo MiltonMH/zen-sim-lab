@@ -206,6 +206,8 @@ export default function HouseholdDetail({
                   <th className="pb-3 font-medium">Period</th>
                   <th className="pb-3 font-medium">Läge</th>
                   <th className="pb-3 font-medium text-right">Sparat (SEK)</th>
+                  <th className="pb-3 font-medium text-right">V2H sparad (SEK)</th>
+                  <th className="pb-3 font-medium text-right">Topptimmar undvikta</th>
                   <th className="pb-3 font-medium">Status</th>
                 </tr>
               </thead>
@@ -216,6 +218,8 @@ export default function HouseholdDetail({
                     <td className="py-3 text-muted-foreground">{r.period_from} → {r.period_to}</td>
                     <td className="py-3 capitalize">{r.optimization_mode}</td>
                     <td className="py-3 text-right font-medium">{fmtNum(r.total_saved_sek != null ? Math.round(Number(r.total_saved_sek)) : null)}</td>
+                    <td className="py-3 text-right font-medium text-sky-600">{fmtNum(r.total_v2h_saving_sek != null ? Math.round(Number(r.total_v2h_saving_sek)) : null)}</td>
+                    <td className="py-3 text-right">{fmtNum(r.peak_hours_avoided)}</td>
                     <td className="py-3"><span className="text-xs px-2 py-0.5 rounded-full bg-muted capitalize">{r.status ?? "—"}</span></td>
                   </tr>
                 ))}
