@@ -442,23 +442,91 @@ Deno.serve(async (req) => {
         }
       }
 
+      // Bug 3 fix — MINIMUM DAILY CHARGE GUARANTEE:
+      // Always charge at least the minimum needed kWh/day so the car is usable tomorrow,
+      // regardless of price-optimization rules (this matters in flat-price areas like SE4
+      // where the hard threshold rarely triggers but combined-score still skips too much).
+      const minKwhNeeded = (dailyKm / KM_PER_KWH_BASELINE);
+      if (dayKwhCharged < minKwhNeeded) {
+        const remainingKwh = minKwhNeeded - dayKwhCharged;
+        const hoursToForce = Math.ceil(remainingKwh / CHARGE_KW);
+        // Pick cheapest hours where we did NOT already charge or v2h
+        const alreadyChargedIsos = new Set(
+          logsBatch
+            .filter(l => l.logged_at && (l.decision === "charge" || l.decision === "emergency_charge" || l.decision === "v2h"))
+            .map(l => l.logged_at as string),
+        );
+        const dayIsos = new Set(scored.map(h => h.iso));
+        const candidates = scored
+          .filter(h => dayIsos.has(h.iso) && !alreadyChargedIsos.has(h.iso) && soc < SOC_PROTECT)
+          .sort((a, b) => a.price - b.price)
+          .slice(0, hoursToForce);
+
+        for (const h of candidates) {
+          if (dayKwhCharged >= minKwhNeeded) break;
+          if (soc >= SOC_PROTECT) break;
+          const kwh = CHARGE_KW;
+          const gridTariffSek = lookupTariff(h.iso, h.hourOfDay);
+          const totalCostPerKwh = (h.price + gridTariffSek + ENERGY_TAX_SEK) * VAT_MULTIPLIER;
+          soc = Math.min(100, soc + (kwh / batteryKwh) * 100);
+          dayKwhCharged += kwh;
+          dayChargeCost += kwh * h.price;
+          dayChargeCostWithTariff += kwh * totalCostPerKwh;
+
+          // Update the existing log row for that hour: flip its decision to charge w/ minimum reason.
+          const idx = logsBatch.findIndex(l => l.logged_at === h.iso && l.simulation_id === simulation_id);
+          if (idx >= 0) {
+            logsBatch[idx] = {
+              ...logsBatch[idx],
+              decision: "charge",
+              reason: "minimum_dagsladdning",
+              charge_kw: Number(CHARGE_KW.toFixed(2)),
+              soc_pct: Number(soc.toFixed(2)),
+              grid_draw_kw: Number((CHARGE_KW + Number(logsBatch[idx].house_consumption_kw ?? 0)).toFixed(3)),
+            };
+          }
+        }
+      }
+
       totalKwhCharged += dayKwhCharged;
       totalCostOptimized += dayChargeCost;
       totalCostWithTariff += dayChargeCostWithTariff;
     }
 
-    // Only the first scenario clears prior logs in the window;
-    // subsequent scenarios append so the household's full distribution is visible.
-    if ((sim.scenario_number ?? 1) === 1) {
-      await supabase.from("optimization_logs").delete()
-        .eq("household_id", sim.household_id)
-        .gte("logged_at", fromIso).lte("logged_at", toIso);
-    }
+    // Bug 1 fix — per-simulation log lifecycle:
+    // Each simulation owns its own logs (now keyed by simulation_id). We delete only THIS
+    // simulation's prior logs (idempotent re-runs) instead of wiping the whole household
+    // window, which previously meant only the last simulation in a bulk run had logs.
+    await supabase.from("optimization_logs").delete().eq("simulation_id", simulation_id);
 
+    let logsInserted = 0;
     for (let i = 0; i < logsBatch.length; i += 500) {
       const chunk = logsBatch.slice(i, i + 500);
-      const { error: lErr } = await supabase.from("optimization_logs").insert(chunk);
-      if (lErr) console.error("log insert error", lErr.message);
+      const { error: lErr, count } = await supabase
+        .from("optimization_logs")
+        .insert(chunk, { count: "exact" });
+      if (lErr) {
+        console.error("log insert error", lErr.message);
+      } else {
+        logsInserted += count ?? chunk.length;
+      }
+    }
+
+    // Verify logs landed for this simulation_id; warn loudly if not.
+    const { count: verifyCount, error: verifyErr } = await supabase
+      .from("optimization_logs")
+      .select("id", { count: "exact", head: true })
+      .eq("simulation_id", simulation_id);
+    if (verifyErr) {
+      console.error("log verify error", verifyErr.message);
+    } else if ((verifyCount ?? 0) === 0 && logsBatch.length > 0) {
+      console.error(
+        `❌ optimization_logs verification failed: simulation_id=${simulation_id} expected ${logsBatch.length} rows, found 0`,
+      );
+    } else {
+      console.log(
+        `✓ optimization_logs verified: simulation_id=${simulation_id} household=${sim.household_id} rows=${verifyCount}`,
+      );
     }
 
     // Clear and insert events for this simulation (scenario 1 clears the window)
