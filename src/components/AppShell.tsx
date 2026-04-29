@@ -89,7 +89,13 @@ export default function AppShell() {
           />
         );
       case "resultat":
-        return <Results initialView={(params.view as "overview" | "households" | "logs" | undefined) ?? "overview"} />;
+        return (
+          <ResultatLoggar
+            initialView={(params.view as "all" | "overview" | "households" | "logs" | undefined) ?? "all"}
+            initialSimulationId={params.simulation}
+            initialHouseholdId={params.household}
+          />
+        );
       default:
         return <Overview />;
     }
