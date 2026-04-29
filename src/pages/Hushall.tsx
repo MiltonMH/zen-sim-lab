@@ -281,7 +281,10 @@ export default function Hushall() {
               </div>
               <div>
                 <Label>Prisområde</Label>
-                <Select value={editing.price_area ?? "SE3"} onValueChange={v => set("price_area", v)}>
+                <Select
+                  value={editing.price_area ?? "SE3"}
+                  onValueChange={v => setEditing(prev => ({ ...(prev ?? {}), price_area: v, grid_company: "" }))}
+                >
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {PRICE_AREAS.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
@@ -290,8 +293,25 @@ export default function Hushall() {
               </div>
 
               <div>
-                <Label>Nätbolag</Label>
-                <Input value={editing.grid_company ?? ""} onChange={e => set("grid_company", e.target.value)} placeholder="t.ex. Vattenfall" />
+                <Label>Nätbolag <span className="text-destructive">*</span></Label>
+                <Select
+                  value={editing.grid_company ?? ""}
+                  onValueChange={v => set("grid_company", v)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Välj nätbolag" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(GRID_COMPANIES_BY_AREA[editing.price_area ?? "SE3"] ?? []).map(c => (
+                      <SelectItem key={c} value={c}>
+                        {c}{tariffs[c] != null ? ` · ${tariffs[c]} SEK/kW` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {!editing.grid_company && (
+                  <p className="text-[11px] text-destructive mt-1">Krävs för effekttariff-beräkning</p>
+                )}
               </div>
               <div>
                 <Label>Huvudsäkring (A)</Label>
