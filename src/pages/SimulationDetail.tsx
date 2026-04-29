@@ -9,10 +9,11 @@ import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import {
-  ComposedChart, Line, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Legend,
+  ComposedChart, Line, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Legend, ReferenceLine,
 } from "recharts";
 
 interface Props { simulationId: string; onBack: () => void }
+const PAGE_SIZE = 50;
 
 const decisionStyles: Record<string, { row: string; pill: string; label: string }> = {
   charge:           { row: "bg-emerald-500/5 hover:bg-emerald-500/10", pill: "bg-emerald-500/15 text-emerald-700", label: "Charge" },
@@ -27,6 +28,7 @@ export default function SimulationDetail({ simulationId, onBack }: Props) {
   const [household, setHousehold] = useState<any | null>(null);
   const [logs, setLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -138,6 +140,12 @@ Beslut loggade: ${logs.length}`;
         </div>
       </Card>
 
+      {/* Savings breakdown stacked bar */}
+      <SavingsBreakdownBar
+        price={Number(sim.price_savings_sek ?? Math.max(0, Number(sim.total_saved_sek ?? 0) - Number(sim.total_v2h_saving_sek ?? 0)))}
+        v2h={Number(sim.total_v2h_saving_sek ?? 0)}
+      />
+
       {/* Chart */}
       <Card className="rounded-2xl border-border/60 shadow-card p-6">
         <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-4">Spotpris vs laddningsbeslut</h3>
@@ -150,6 +158,7 @@ Beslut loggade: ${logs.length}`;
               <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10 }} label={{ value: "kW", angle: 90, position: "insideRight", style: { fontSize: 10 } }} />
               <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
+              <ReferenceLine yAxisId="left" y={1.0} stroke="hsl(0, 72%, 51%)" strokeDasharray="4 4" label={{ value: "1.0 SEK/kWh", fontSize: 10, fill: "hsl(0, 72%, 51%)" }} />
               <Bar yAxisId="right" dataKey="charge" name="Charge kW" fill="hsl(172, 66%, 34%)" />
               <Bar yAxisId="right" dataKey="v2h" name="V2H kW" fill="hsl(199, 89%, 48%)" />
               <Line yAxisId="left" type="monotone" dataKey="price" name="Spotpris" stroke="hsl(var(--muted-foreground))" dot={false} strokeWidth={1.5} />
@@ -160,20 +169,27 @@ Beslut loggade: ${logs.length}`;
 
       {/* Logs */}
       <Card className="rounded-2xl border-border/60 shadow-card overflow-hidden">
-        <div className="px-6 py-4 border-b border-border/60">
+        <div className="px-6 py-4 border-b border-border/60 flex items-center justify-between gap-3 flex-wrap">
           <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Optimeringslogg ({logs.length})</h3>
+          {logs.length > PAGE_SIZE && (
+            <div className="flex items-center gap-2 text-xs">
+              <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => Math.max(0, p - 1))}>Föregående</Button>
+              <span className="text-muted-foreground">Sida {page + 1} / {Math.ceil(logs.length / PAGE_SIZE)}</span>
+              <Button variant="outline" size="sm" disabled={(page + 1) * PAGE_SIZE >= logs.length} onClick={() => setPage(p => p + 1)}>Nästa</Button>
+            </div>
+          )}
         </div>
-        <div className="max-h-[600px] overflow-auto">
+        <div className="overflow-auto">
           <Table>
             <TableHeader className="sticky top-0 bg-background z-10">
               <TableRow className="bg-muted/40">
-                {["Hour","Decision","Spot","SoC","House kW","Grid kW","V2H SEK","Score","Reason"].map(h =>
+                {["Tidpunkt","Beslut","Spotpris","SoC%","Hus kW","Nät kW","V2H SEK","Poäng","Anledning"].map(h =>
                   <TableHead key={h} className="text-xs uppercase tracking-wider font-medium">{h}</TableHead>
                 )}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {logs.map(l => {
+              {logs.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map(l => {
                 const style = decisionStyles[l.decision] ?? decisionStyles.pause;
                 return (
                   <TableRow key={l.id} className={cn(style.row)}>
@@ -194,6 +210,33 @@ Beslut loggade: ${logs.length}`;
         </div>
       </Card>
     </div>
+  );
+}
+
+function SavingsBreakdownBar({ price, v2h }: { price: number; v2h: number }) {
+  const total = Math.max(0.0001, price + v2h);
+  const pricePct = (Math.max(0, price) / total) * 100;
+  const v2hPct = (Math.max(0, v2h) / total) * 100;
+  return (
+    <Card className="rounded-2xl border-border/60 shadow-card p-6">
+      <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">Besparingsfördelning</h3>
+      <div className="flex h-10 w-full overflow-hidden rounded-full bg-muted">
+        {pricePct > 0 && (
+          <div className="flex items-center justify-center text-[11px] font-semibold text-white" style={{ width: `${pricePct}%`, background: "hsl(172, 66%, 34%)" }}>
+            {pricePct > 12 && `${price.toFixed(2)} SEK`}
+          </div>
+        )}
+        {v2hPct > 0 && (
+          <div className="flex items-center justify-center text-[11px] font-semibold text-white" style={{ width: `${v2hPct}%`, background: "hsl(199, 89%, 48%)" }}>
+            {v2hPct > 12 && `${v2h.toFixed(2)} SEK`}
+          </div>
+        )}
+      </div>
+      <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full" style={{ background: "hsl(172, 66%, 34%)" }} /> Prisoptimering · {price.toFixed(2)} SEK ({pricePct.toFixed(0)}%)</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full" style={{ background: "hsl(199, 89%, 48%)" }} /> V2H · {v2h.toFixed(2)} SEK ({v2hPct.toFixed(0)}%)</span>
+      </div>
+    </Card>
   );
 }
 
