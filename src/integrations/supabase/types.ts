@@ -282,7 +282,33 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      spot_prices_days: {
+        Args: { _month: number; _year: number }
+        Returns: {
+          avg_price: number
+          day: number
+          max_price: number
+          min_price: number
+          rows: number
+        }[]
+      }
+      spot_prices_months: {
+        Args: { _year: number }
+        Returns: {
+          avg_price: number
+          max_price: number
+          month: number
+          rows: number
+        }[]
+      }
+      spot_prices_years: {
+        Args: never
+        Returns: {
+          avg_price: number
+          rows: number
+          year: number
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never
