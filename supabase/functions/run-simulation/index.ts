@@ -268,6 +268,7 @@ Deno.serve(async (req) => {
       const monthKey = day.slice(0, 7); // YYYY-MM
 
       const maxPrice = Math.max(...dayHours.map(h => h.price));
+      const dailyAvgPrice = dayHours.reduce((s, h) => s + h.price, 0) / dayHours.length;
       const maxWeight = Math.max(...dayHours.map(h => h.weight));
 
       const scored = dayHours.map((h, idx) => {
