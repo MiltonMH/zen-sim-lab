@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 import Login from "@/pages/Login";
 import Overview from "@/pages/Overview";
-import DataExplorer from "@/pages/DataExplorer";
+import Data from "@/pages/Data";
 import ImportData from "@/pages/ImportData";
 import SimulationRunner from "@/pages/SimulationRunner";
 import Results from "@/pages/Results";
@@ -80,8 +80,7 @@ export default function AppShell() {
       case "overview":
         return <Overview />;
       case "data":
-        // Existing Data Explorer is the richer of the two; Import lives inside it via tab in the next step.
-        return <DataExplorer initialTab={(params.tab as "spot" | "tariffs" | undefined) ?? "spot"} />;
+        return <Data initialTab={(params.tab as "spot" | "tariffs" | "import" | undefined) ?? "spot"} />;
       case "simulering":
         return (
           <SimulationRunner

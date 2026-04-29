@@ -436,7 +436,7 @@ function DayDetail({ year, month, day }: { year: number; month: number; day: num
   );
 }
 
-function SpotPricesExplorer() {
+export function SpotPricesExplorer() {
   const [sel, setSel] = useState<Selection>({ year: null, month: null, day: null });
 
   return (
@@ -470,7 +470,7 @@ function SpotPricesExplorer() {
 // Tariffs (unchanged)
 // ─────────────────────────────────────────────────────────────
 
-function TariffsTab() {
+export function TariffsTab() {
   const [tariffs, setTariffs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
