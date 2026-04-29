@@ -71,10 +71,8 @@ export default function AppShell() {
 
   if (!session) return <Login />;
 
-  // Page content unchanged in this step — only the sidebar is being restructured.
-  // Data tab defaults to spot-prices view inside the existing DataExplorer.
-  // Simulering defaults to the single-run mode inside the existing runner.
-  // Resultat defaults to the overview view inside the existing Results page.
+  // 4-item nav. Each case maps to one new merged page.
+  // Legacy navigation events (from older code paths) are remapped above to one of these 4 views.
   const renderPage = () => {
     switch (view) {
       case "overview":
