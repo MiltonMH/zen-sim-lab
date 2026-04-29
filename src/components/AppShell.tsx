@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Home, Database, Play, BarChart3, LogOut } from "lucide-react";
+import { Home, Database, Play, BarChart3, LogOut, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 import Login from "@/pages/Login";
@@ -8,8 +8,9 @@ import Data from "@/pages/Data";
 
 import Simulering from "@/pages/Simulering";
 import ResultatLoggar from "@/pages/ResultatLoggar";
+import Hushall from "@/pages/Hushall";
 
-type View = "overview" | "data" | "simulering" | "resultat";
+type View = "overview" | "data" | "hushall" | "simulering" | "resultat";
 
 type NavParams = Record<string, string | undefined>;
 
