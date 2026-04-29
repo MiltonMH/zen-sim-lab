@@ -172,15 +172,33 @@ function AllSimsTab({
   );
 }
 
-/* ───────────────── Tab 2: Per hushåll ───────────────── */
+/* ───────────────── Tab 2: Per hushåll (cards) ───────────────── */
+interface HouseholdCardData {
+  id: string;
+  name: string;
+  house_type: string | null;
+  area_m2: number | null;
+  price_area: string | null;
+  heating_type: string | null;
+  car_model: string | null;
+  battery_kwh: number | null;
+  ev_brand: string | null;
+  ev_model: string | null;
+  ev_battery: number | null;
+  v2x_capable: boolean;
+}
+
+function cap(s: string | null | undefined) {
+  if (!s) return "";
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 function PerHouseholdTab({
-  sims, households, householdMap, onOpen, autoExpandHousehold,
+  sims, households, onOpenHousehold,
 }: {
   sims: SimRow[];
-  households: HouseholdRow[];
-  householdMap: Map<string, string>;
-  onOpen: (id: string) => void;
-  autoExpandHousehold?: string;
+  households: HouseholdCardData[];
+  onOpenHousehold: (id: string) => void;
 }) {
   const grouped = useMemo(() => {
     const g = new Map<string, SimRow[]>();
@@ -190,20 +208,27 @@ function PerHouseholdTab({
       arr.push(s);
       g.set(s.household_id, arr);
     });
-    return Array.from(g.entries())
-      .map(([hid, rows]) => {
+    return households
+      .map((hh) => {
+        const rows = (g.get(hh.id) ?? []).sort((a, b) => (a.started_at ?? "").localeCompare(b.started_at ?? ""));
         const totalSaved = rows.reduce((a, r) => a + Number(r.total_saved_sek ?? 0), 0);
         const totalV2h = rows.reduce((a, r) => a + Number(r.total_v2h_saving_sek ?? 0), 0);
-        const best = rows.reduce((a, r) => Math.max(a, Number(r.total_saved_sek ?? 0)), 0);
+        const avg = rows.length ? totalSaved / rows.length : 0;
+        const last10 = rows.slice(-10).map((r, i) => ({ i, v: Number(r.total_saved_sek ?? 0) }));
+        const trendUp = last10.length >= 2 && last10[last10.length - 1].v >= last10[0].v;
         return {
-          household_id: hid,
-          name: householdMap.get(hid) ?? "Okänt",
-          rows: rows.sort((a, b) => (b.started_at ?? "").localeCompare(a.started_at ?? "")),
-          totalSaved, totalV2h, best,
+          ...hh,
+          rows,
+          totalSaved,
+          totalV2h,
+          avg,
+          last10,
+          trendUp,
         };
       })
+      .filter((h) => h.rows.length > 0)
       .sort((a, b) => b.totalSaved - a.totalSaved);
-  }, [sims, householdMap]);
+  }, [sims, households]);
 
   if (grouped.length === 0) {
     return (
@@ -214,66 +239,80 @@ function PerHouseholdTab({
   }
 
   return (
-    <div className="space-y-3">
-      {grouped.map((g) => (
-        <Collapsible key={g.household_id} defaultOpen={g.household_id === autoExpandHousehold}>
-          <Card className="rounded-2xl border-border/60 shadow-card overflow-hidden">
-            <CollapsibleTrigger className="w-full px-5 py-4 flex items-center gap-4 hover:bg-muted/30 transition-colors text-left">
-              <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform data-[state=open]:rotate-90" />
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-semibold">{g.name}</div>
-                <div className="text-[11px] text-muted-foreground">{g.rows.length} simuleringar</div>
-              </div>
-              <div className="grid grid-cols-3 gap-6 text-right">
-                <div>
-                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Total sparat</div>
-                  <div className="text-sm font-medium tabular-nums text-emerald-600 dark:text-emerald-400">{fmtSek(g.totalSaved, 0)}</div>
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {grouped.map((g) => {
+        const carText = g.ev_brand
+          ? `${g.ev_brand} ${g.ev_model}${g.ev_battery ? ` | ${g.ev_battery} kWh` : ""}`
+          : g.car_model
+            ? `${g.car_model}${g.battery_kwh ? ` | ${g.battery_kwh} kWh` : ""}`
+            : "Bil okänd";
+        const meta = [
+          g.house_type && g.area_m2 ? `${cap(g.house_type)} ${g.area_m2}m²` : g.house_type ? cap(g.house_type) : null,
+          g.price_area,
+          g.heating_type ? cap(g.heating_type) : null,
+        ].filter(Boolean).join(" | ");
+        return (
+          <button
+            key={g.id}
+            onClick={() => onOpenHousehold(g.id)}
+            className="text-left group"
+          >
+            <Card className="rounded-2xl border-border/60 shadow-card p-5 transition-all hover:shadow-md hover:border-primary/30">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-base font-semibold tracking-tight truncate">{g.name}</div>
+                  <div className="text-[12px] text-muted-foreground mt-0.5 truncate">{meta || "—"}</div>
+                  <div className="text-[12px] text-muted-foreground truncate">{carText}</div>
                 </div>
-                <div>
-                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Bästa körning</div>
-                  <div className="text-sm font-medium tabular-nums">{fmtSek(g.best, 0)}</div>
-                </div>
-                <div>
-                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">V2H totalt</div>
-                  <div className="text-sm font-medium tabular-nums text-sky-600 dark:text-sky-400">{fmtSek(g.totalV2h, 0)}</div>
-                </div>
+                {g.v2x_capable && (
+                  <Badge className="rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-transparent shrink-0">V2X</Badge>
+                )}
               </div>
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <div className="border-t border-border/60">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted/20 text-xs uppercase tracking-wide text-muted-foreground">
-                    <tr>
-                      <th className="text-left px-5 py-2 font-medium">Datum</th>
-                      <th className="text-left px-5 py-2 font-medium">Period</th>
-                      <th className="text-left px-5 py-2 font-medium">Läge</th>
-                      <th className="text-right px-5 py-2 font-medium">Sparat</th>
-                      <th className="text-right px-5 py-2 font-medium">V2H</th>
-                      <th className="text-left px-5 py-2 font-medium">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {g.rows.map((s) => (
-                      <tr
-                        key={s.id}
-                        className="border-t border-border/60 hover:bg-muted/30 cursor-pointer"
-                        onClick={() => onOpen(s.id)}
-                      >
-                        <td className="px-5 py-2.5 text-muted-foreground tabular-nums">{fmtDateTime(s.started_at)}</td>
-                        <td className="px-5 py-2.5 tabular-nums">{fmtDate(s.period_from)} – {fmtDate(s.period_to)}</td>
-                        <td className="px-5 py-2.5"><Badge variant="secondary" className="rounded-full">{s.optimization_mode}</Badge></td>
-                        <td className="px-5 py-2.5 text-right tabular-nums text-emerald-600 dark:text-emerald-400 font-medium">{fmtSek(Number(s.total_saved_sek ?? 0))}</td>
-                        <td className="px-5 py-2.5 text-right tabular-nums text-sky-600 dark:text-sky-400">{fmtSek(Number(s.total_v2h_saving_sek ?? 0))}</td>
-                        <td className="px-5 py-2.5"><StatusPill status={s.status} /></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+
+              <div className="border-t border-border/60 my-4" />
+
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+                <CardStat label="Snittbesparing" value={`${g.avg.toLocaleString("sv-SE", { maximumFractionDigits: 2 })} SEK/sim`} />
+                <CardStat label="Total sparat" value={fmtSek(g.totalSaved, 0)} accent="emerald" />
+                <CardStat label="V2H sparat" value={fmtSek(g.totalV2h, 0)} accent="sky" />
+                <CardStat label="Simuleringar" value={`${g.rows.length} st`} />
               </div>
-            </CollapsibleContent>
-          </Card>
-        </Collapsible>
-      ))}
+
+              {g.last10.length >= 2 && (
+                <div className="mt-4">
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Trend (senaste {g.last10.length})</div>
+                  <div className="h-10">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={g.last10}>
+                        <Line
+                          type="monotone"
+                          dataKey="v"
+                          stroke={g.trendUp ? "hsl(142 71% 45%)" : "hsl(var(--muted-foreground))"}
+                          strokeWidth={1.75}
+                          dot={false}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
+            </Card>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function CardStat({ label, value, accent }: { label: string; value: string; accent?: "emerald" | "sky" }) {
+  const tone =
+    accent === "emerald" ? "text-emerald-600 dark:text-emerald-400"
+    : accent === "sky" ? "text-sky-600 dark:text-sky-400"
+    : "text-foreground";
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className={cn("text-sm font-medium tabular-nums mt-0.5", tone)}>{value}</div>
     </div>
   );
 }
