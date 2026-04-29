@@ -62,12 +62,13 @@ interface ScenarioRunOutcome {
 }
 
 function generateScenarioParams(n: number): ScenarioParams {
+  // Tightened ranges för att minska variation mellan scenarier (max ~3x istället för 15x)
   return {
-    starting_soc: Math.round(20 + Math.random() * 70),
-    daily_km_multiplier: Number((0.7 + Math.random() * 0.6).toFixed(2)),
-    departure_offset_hours: Math.round((Math.random() * 2 - 1) * 10) / 10,
-    price_threshold: PRICE_THRESHOLDS[(n - 1) % PRICE_THRESHOLDS.length],
-    min_soc: Math.round(15 + Math.random() * 20),
+    starting_soc: Math.round(45 + Math.random() * 25),                // 45–70 % (var 20–90)
+    daily_km_multiplier: Number((0.85 + Math.random() * 0.30).toFixed(2)), // 0.85–1.15 (var 0.7–1.3)
+    departure_offset_hours: DEPARTURE_OFFSETS[Math.floor(Math.random() * DEPARTURE_OFFSETS.length)], // -1, 0, +1
+    price_threshold: PRICE_THRESHOLDS[(n - 1) % PRICE_THRESHOLDS.length],  // 1.8 / 2.0 / 2.2
+    min_soc: Math.round(18 + Math.random() * 10),                     // 18–28 % (var 15–35)
   };
 }
 
