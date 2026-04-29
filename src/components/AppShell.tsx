@@ -81,6 +81,8 @@ export default function AppShell() {
         return <Overview />;
       case "data":
         return <Data initialTab={(params.tab as "spot" | "tariffs" | "import" | undefined) ?? "spot"} />;
+      case "hushall":
+        return <Hushall />;
       case "simulering":
         return (
           <Simulering
