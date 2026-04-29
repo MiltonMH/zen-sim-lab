@@ -319,7 +319,7 @@ export default function Households() {
           <p className="text-sm text-muted-foreground mt-1.5 max-w-sm">
             Create your first virtual household to begin simulating energy consumption
           </p>
-          <Button onClick={() => setOpen(true)} className="rounded-full bg-primary hover:bg-primary/90 text-primary-foreground mt-6 gap-2">
+          <Button onClick={() => { resetForm(); setOpen(true); }} className="rounded-full bg-primary hover:bg-primary/90 text-primary-foreground mt-6 gap-2">
             <Plus className="h-4 w-4" /> Create first household
           </Button>
         </div>
