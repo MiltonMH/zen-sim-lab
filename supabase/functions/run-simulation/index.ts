@@ -200,15 +200,18 @@ Deno.serve(async (req) => {
 
       // Baseline: fixed-window charge regardless of price
       const baselineHours = scored.filter(h => BASELINE_HOURS.includes(h.hourOfDay));
-      const baselineAvgPrice = baselineHours.length > 0
-        ? baselineHours.reduce((s, h) => s + h.price, 0) / baselineHours.length
-        : dayHours.reduce((s, h) => s + h.price, 0) / dayHours.length;
+      const baselineRef = baselineHours.length > 0 ? baselineHours : dayHours;
+      const baselineAvgPrice = baselineRef.reduce((s, h) => s + h.price, 0) / baselineRef.length;
+      const baselineAvgTariff = baselineRef.reduce((s, h) => s + lookupTariff(h.iso, h.hourOfDay), 0) / baselineRef.length;
       const dayBaselineCost = dailyKwhNeeded * baselineAvgPrice;
+      const dayBaselineCostWithTariff = dailyKwhNeeded * (baselineAvgPrice + baselineAvgTariff + ENERGY_TAX_SEK) * VAT_MULTIPLIER;
       totalCostBaseline += dayBaselineCost;
+      totalCostBaselineWithTariff += dayBaselineCostWithTariff;
 
       // Walk hours chronologically
       let dayKwhCharged = 0;
       let dayChargeCost = 0;
+      let dayChargeCostWithTariff = 0;
 
       for (const h of scored) {
         const hourConsKw = avgHouseKw * (h.weight / (sumWeights / 24));
