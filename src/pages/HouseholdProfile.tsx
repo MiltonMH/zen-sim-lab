@@ -310,9 +310,12 @@ export default function HouseholdProfile({
     );
   }
 
-  const subInfo = [
-    hh.house_type && hh.area_m2 ? `${cap(hh.house_type)} ${hh.area_m2}m²` : hh.house_type ? cap(hh.house_type) : null,
+  const primaryInfo = [
+    hh.grid_company,
     hh.price_area,
+    hh.house_type && hh.area_m2 ? `${cap(hh.house_type)} ${hh.area_m2}m²` : hh.house_type ? cap(hh.house_type) : null,
+  ].filter(Boolean);
+  const secondaryInfo = [
     hh.heating_type ? cap(hh.heating_type) : null,
     ev ? `${ev.brand} ${ev.model}` : hh.car_model,
     hh.routine_type ? cap(hh.routine_type) : hh.commuter_type ? cap(hh.commuter_type) : null,
@@ -343,7 +346,20 @@ export default function HouseholdProfile({
             <Badge className="rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-transparent">CCS2</Badge>
           )}
         </div>
-        <p className="text-sm text-muted-foreground">{subInfo.join(" · ")}</p>
+        <p className="text-sm font-medium text-foreground">{primaryInfo.join(" | ")}</p>
+        {secondaryInfo.length > 0 && (
+          <p className="text-sm text-muted-foreground">{secondaryInfo.join(" · ")}</p>
+        )}
+        {peakTariff != null && (
+          <p className="text-xs text-muted-foreground">
+            Effekttariff: <span className="font-medium text-foreground">{peakTariff} SEK/kW/månad</span>
+          </p>
+        )}
+        {!hh.grid_company && (
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            ⚠ Inget nätbolag valt — effekttariff använder standardvärde
+          </p>
+        )}
       </header>
 
       {/* 4 stat cards */}
