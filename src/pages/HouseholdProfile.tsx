@@ -135,6 +135,19 @@ export default function HouseholdProfile({
       if (cancel) return;
       setEv(evRow);
 
+      // Hämta effekttariff för hushållets nätbolag
+      if (hhData?.grid_company) {
+        const { data: gcs } = await supabase
+          .from("grid_company_settings")
+          .select("peak_tariff_sek_per_kw")
+          .eq("grid_company", hhData.grid_company)
+          .maybeSingle();
+        if (cancel) return;
+        setPeakTariff(gcs ? Number(gcs.peak_tariff_sek_per_kw) : null);
+      } else {
+        setPeakTariff(null);
+      }
+
       const [{ data: simData }, { data: logData }] = await Promise.all([
         supabase
           .from("simulation_runs")
