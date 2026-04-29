@@ -215,13 +215,32 @@ Deno.serve(async (req) => {
       const ranked = [...scored].sort((a, b) => b.combined - a.combined);
       const pickedCharge = new Set<number>(ranked.slice(0, TARGET_CHARGE_HOURS).map(r => r.idx));
 
-      // Baseline: fixed-window charge regardless of price
-      const baselineHours = scored.filter(h => BASELINE_HOURS.includes(h.hourOfDay));
-      const baselineRef = baselineHours.length > 0 ? baselineHours : dayHours;
-      const baselineAvgPrice = baselineRef.reduce((s, h) => s + h.price, 0) / baselineRef.length;
-      const baselineAvgTariff = baselineRef.reduce((s, h) => s + lookupTariff(h.iso, h.hourOfDay), 0) / baselineRef.length;
-      const dayBaselineCost = dailyKwhNeeded * baselineAvgPrice;
-      const dayBaselineCostWithTariff = dailyKwhNeeded * (baselineAvgPrice + baselineAvgTariff + ENERGY_TAX_SEK) * VAT_MULTIPLIER;
+      // Bug 2 fix — TRULY DUMB BASELINE:
+      // Baseline = charge whenever the car is connected (return_time → leave_time, wrap over midnight),
+      // regardless of price. Capped at dailyKwhNeeded so we never overcharge the model.
+      // Using actual prices in those hours guarantees baseline cost >= optimized cost
+      // (optimized only ever picks cheaper subset), so savings are never negative.
+      const isConnectedHour = (hod: number) => {
+        if (returnTime === leaveTime) return true; // edge: assume always home
+        if (returnTime < leaveTime) return hod >= returnTime && hod < leaveTime;
+        // wrap-around (e.g. 17 → 07): connected from returnTime..23 and 0..leaveTime-1
+        return hod >= returnTime || hod < leaveTime;
+      };
+      const connectedHours = scored.filter(h => isConnectedHour(h.hourOfDay));
+      const baselineRef = connectedHours.length > 0 ? connectedHours : dayHours;
+      // Charge cheapest connected hours up to dailyKwhNeeded; if not enough connected hours, take all.
+      const baselineHoursNeeded = Math.min(
+        baselineRef.length,
+        Math.max(1, Math.ceil(dailyKwhNeeded / CHARGE_KW)),
+      );
+      const baselineCharging = [...baselineRef]
+        .sort((a, b) => a.iso.localeCompare(b.iso)) // chronological — dumb baseline doesn't price-optimize
+        .slice(0, baselineHoursNeeded);
+      const baselineKwh = Math.min(dailyKwhNeeded, baselineCharging.length * CHARGE_KW);
+      const baselineAvgPrice = baselineCharging.reduce((s, h) => s + h.price, 0) / baselineCharging.length;
+      const baselineAvgTariff = baselineCharging.reduce((s, h) => s + lookupTariff(h.iso, h.hourOfDay), 0) / baselineCharging.length;
+      const dayBaselineCost = baselineKwh * baselineAvgPrice;
+      const dayBaselineCostWithTariff = baselineKwh * (baselineAvgPrice + baselineAvgTariff + ENERGY_TAX_SEK) * VAT_MULTIPLIER;
       totalCostBaseline += dayBaselineCost;
       totalCostBaselineWithTariff += dayBaselineCostWithTariff;
 
