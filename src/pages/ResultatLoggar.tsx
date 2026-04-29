@@ -282,6 +282,7 @@ interface HouseholdCardData {
   ev_model: string | null;
   ev_battery: number | null;
   ccs2_port: boolean;
+  household_type: string | null;
 }
 
 function cap(s: string | null | undefined) {
