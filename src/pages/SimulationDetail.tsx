@@ -13,6 +13,7 @@ import {
   ComposedChart, Line, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Legend, ReferenceLine,
 } from "recharts";
 import EventTimeline from "@/components/EventTimeline";
+import DecisionViewer from "@/components/DecisionViewer";
 
 interface Props { simulationId: string; onBack: () => void }
 const PAGE_SIZE = 50;
@@ -47,7 +48,7 @@ export default function SimulationDetail({ simulationId, onBack }: Props) {
         const fromIso = `${s.period_from}T00:00:00+00:00`;
         const toIso = `${s.period_to}T23:59:59+00:00`;
         const { data: l } = await supabase.from("optimization_logs").select("*")
-          .eq("household_id", s.household_id).gte("logged_at", fromIso).lte("logged_at", toIso)
+          .eq("simulation_id", simulationId).gte("logged_at", fromIso).lte("logged_at", toIso)
           .order("logged_at", { ascending: true });
         if (active) setLogs(l ?? []);
       }
@@ -120,8 +121,9 @@ Beslut loggade: ${logs.length}`;
       </div>
 
       <Tabs defaultValue="overview">
-        <TabsList className="rounded-full bg-muted p-1">
+        <TabsList className="rounded-full bg-muted p-1 flex-wrap h-auto">
           <TabsTrigger value="overview" className="rounded-full px-5">Översikt</TabsTrigger>
+          <TabsTrigger value="decision-viewer" className="rounded-full px-5">Beslutsvy</TabsTrigger>
           <TabsTrigger value="chart" className="rounded-full px-5">Graf</TabsTrigger>
           <TabsTrigger value="decisions" className="rounded-full px-5">Beslut</TabsTrigger>
           <TabsTrigger value="events" className="rounded-full px-5">Händelselogg</TabsTrigger>
@@ -170,6 +172,17 @@ Beslut loggade: ${logs.length}`;
           <SavingsBreakdownBar
             price={Number(sim.price_savings_sek ?? Math.max(0, Number(sim.total_saved_sek ?? 0) - Number(sim.total_v2h_saving_sek ?? 0)))}
             v2h={Number(sim.total_v2h_saving_sek ?? 0)}
+          />
+        </TabsContent>
+
+        {/* ===== BESLUTSVY ===== */}
+        <TabsContent value="decision-viewer" className="mt-6">
+          <DecisionViewer
+            simulationId={simulationId}
+            householdId={sim.household_id}
+            periodFrom={sim.period_from}
+            periodTo={sim.period_to}
+            priceThreshold={Number(sim.scenario_params?.price_threshold ?? 2.0)}
           />
         </TabsContent>
 
