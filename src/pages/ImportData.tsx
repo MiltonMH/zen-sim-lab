@@ -53,7 +53,7 @@ export default function ImportData() {
     setTestError(null);
     setTestRecords(null);
     try {
-      const res = await fetch(urlForDate(YEAR, 1, 1));
+      const res = await fetch(urlForDate(selectedYear, 1, 1));
       if (!res.ok) throw new Error(`API returned ${res.status}`);
       const json: ElpriceRecord[] = await res.json();
       setTestRecords(json.slice(0, 5));
@@ -65,7 +65,7 @@ export default function ImportData() {
   };
 
   const runImport = async () => {
-    const days = daysInYear(YEAR);
+    const days = daysInYear(selectedYear);
     setPhase("importing");
     setError(null);
     setProgress({ done: 0, total: days.length, rows: 0 });
@@ -88,10 +88,10 @@ export default function ImportData() {
     try {
       for (let i = 0; i < days.length; i++) {
         const { month, day } = days[i];
-        const res = await fetch(urlForDate(YEAR, month, day));
+        const res = await fetch(urlForDate(selectedYear, month, day));
         if (!res.ok) {
           // Skip missing days (e.g. DST or not yet published) but keep going
-          console.warn(`[ImportData] ${YEAR}-${pad(month)}-${pad(day)} returned ${res.status}`);
+          console.warn(`[ImportData] ${selectedYear}-${pad(month)}-${pad(day)} returned ${res.status}`);
         } else {
           const json: ElpriceRecord[] = await res.json();
           for (const r of json) {
@@ -137,7 +137,7 @@ export default function ImportData() {
           <div>
             <h2 className="text-lg font-semibold">Import spot prices</h2>
             <p className="text-sm text-muted-foreground mt-1">
-              Fetch {YEAR} hourly SE3 spot prices from elprisetjustnu.se (day by day).
+              Fetch {selectedYear} hourly SE3 spot prices from elprisetjustnu.se (day by day).
             </p>
           </div>
 
@@ -169,7 +169,7 @@ export default function ImportData() {
                 className="w-full rounded-full bg-primary hover:bg-primary/90 text-primary-foreground h-11 gap-2"
               >
                 <Download className="h-4 w-4" />
-                Import {YEAR} ({daysInYear(YEAR).length} days)
+                Import {selectedYear} ({daysInYear(selectedYear).length} days)
               </Button>
             )}
 
