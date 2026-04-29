@@ -332,6 +332,7 @@ export type Database = {
           id: string
           logged_at: string
           reason: string | null
+          simulation_id: string | null
           soc_pct: number | null
           spot_price_sek: number | null
           total_cost_per_kwh: number | null
@@ -349,6 +350,7 @@ export type Database = {
           id?: string
           logged_at?: string
           reason?: string | null
+          simulation_id?: string | null
           soc_pct?: number | null
           spot_price_sek?: number | null
           total_cost_per_kwh?: number | null
@@ -366,6 +368,7 @@ export type Database = {
           id?: string
           logged_at?: string
           reason?: string | null
+          simulation_id?: string | null
           soc_pct?: number | null
           spot_price_sek?: number | null
           total_cost_per_kwh?: number | null
