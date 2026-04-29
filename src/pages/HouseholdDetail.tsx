@@ -75,7 +75,7 @@ export default function HouseholdDetail({
       setH(hh as Household | null);
       const [{ data: cps }, { data: sims }] = await Promise.all([
         supabase.from("consumption_profiles").select("hour,weight").eq("household_id", householdId),
-        supabase.from("simulation_runs").select("id,started_at,period_from,period_to,optimization_mode,total_saved_sek,status").eq("household_id", householdId).order("started_at", { ascending: false }),
+        supabase.from("simulation_runs").select("id,started_at,period_from,period_to,optimization_mode,total_saved_sek,status,total_v2h_saving_sek,peak_hours_avoided").eq("household_id", householdId).order("started_at", { ascending: false }),
       ]);
       if (!active) return;
       const w = new Array(24).fill(0);
