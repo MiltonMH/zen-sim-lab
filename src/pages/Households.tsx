@@ -9,7 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Plus, Home, Car, Battery, MapPin, Check, ChevronsUpDown, Flame, Users, Clock, Zap } from "lucide-react";
+import { Plus, Home, Car, Check, ChevronsUpDown, Flame, Clock, Zap, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
@@ -17,6 +17,11 @@ import {
   HEATING_KWH_PER_M2, HEATING_LABELS, ROUTINE_LABELS,
   calcAnnualKwh, buildHourlyWeights,
 } from "@/lib/householdCalc";
+import HouseholdDetail from "@/pages/HouseholdDetail";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface Household {
   id: string;
