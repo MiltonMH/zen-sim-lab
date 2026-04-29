@@ -14,6 +14,7 @@ interface SimRun {
   id: string; household_id: string; period_from: string; period_to: string;
   optimization_mode: string; total_saved_sek: number | null; avg_price_paid: number | null;
   scenarios: number | null; status: string | null;
+  total_v2h_saving_sek?: number | null; peak_hours_avoided?: number | null; price_savings_sek?: number | null;
 }
 interface OptLog {
   id: string; household_id: string; logged_at: string; decision: string;
