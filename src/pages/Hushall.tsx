@@ -80,6 +80,14 @@ const INSULATION = ["bra", "medium", "daligt"];
 const ROUTINE = ["pendlare", "hemma", "skiftarbete", "deltid"];
 const FUSE_OPTIONS = [16, 20, 25, 35, 50, 63];
 
+// Nätbolag per prisområde — används för att filtrera dropdown
+const GRID_COMPANIES_BY_AREA: Record<string, string[]> = {
+  SE1: ["Luleå Energi Elnät", "Skellefteå Kraft Elnät", "Umeå Energi Elnät"],
+  SE2: ["Tekniska Verken Linköping", "Jämtkraft Elnät"],
+  SE3: ["Göteborg Energi Nät", "Vattenfall Eldistribution", "E.ON Energidistribution", "Ellevio"],
+  SE4: ["Kraftringen Nät"],
+};
+
 export default function Hushall() {
   const [items, setItems] = useState<Household[]>([]);
   const [evModels, setEvModels] = useState<EvModel[]>([]);
