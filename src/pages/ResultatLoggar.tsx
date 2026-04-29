@@ -15,6 +15,7 @@ import SimulationDetail from "@/pages/SimulationDetail";
 import EventTimeline from "@/components/EventTimeline";
 import HouseholdProfile from "@/pages/HouseholdProfile";
 import { cn } from "@/lib/utils";
+import { modeLabel } from "@/lib/optimizationModes";
 
 type View = "all" | "households" | "logs";
 
@@ -251,7 +252,7 @@ function AllSimsTab({
                   <td className="px-5 py-3 text-muted-foreground tabular-nums">{fmtDateTime(s.started_at)}</td>
                   <td className="px-5 py-3 font-medium">{s.household_id ? householdMap.get(s.household_id) ?? "—" : "—"}</td>
                   <td className="px-5 py-3 tabular-nums">{fmtDate(s.period_from)} – {fmtDate(s.period_to)}</td>
-                  <td className="px-5 py-3"><Badge variant="secondary" className="rounded-full">{s.optimization_mode}</Badge></td>
+                  <td className="px-5 py-3"><Badge variant="secondary" className="rounded-full">{modeLabel(s.optimization_mode)}</Badge></td>
                   <td className="px-5 py-3 text-right tabular-nums text-emerald-600 dark:text-emerald-400 font-medium">{fmtSek(Number(s.total_saved_sek ?? 0))}</td>
                   <td className="px-5 py-3 text-right tabular-nums text-sky-600 dark:text-sky-400">{fmtSek(Number(s.total_v2h_saving_sek ?? 0))}</td>
                   <td className="px-5 py-3 text-right tabular-nums">{s.scenarios ?? 1}</td>
@@ -279,7 +280,7 @@ interface HouseholdCardData {
   ev_brand: string | null;
   ev_model: string | null;
   ev_battery: number | null;
-  v2x_capable: boolean;
+  ccs2_port: boolean;
 }
 
 function cap(s: string | null | undefined) {
@@ -358,8 +359,8 @@ function PerHouseholdTab({
                   <div className="text-[12px] text-muted-foreground mt-0.5 truncate">{meta || "—"}</div>
                   <div className="text-[12px] text-muted-foreground truncate">{carText}</div>
                 </div>
-                {g.v2x_capable && (
-                  <Badge className="rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-transparent shrink-0">V2X</Badge>
+                {g.ccs2_port !== false && (
+                  <Badge className="rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-transparent shrink-0">CCS2</Badge>
                 )}
               </div>
 
@@ -474,7 +475,7 @@ function LogsTab({
             <SelectContent>
               {visibleSims.map((s) => (
                 <SelectItem key={s.id} value={s.id}>
-                  {fmtDate(s.period_from)}–{fmtDate(s.period_to)} · {s.household_id ? householdMap.get(s.household_id) : ""} · {s.optimization_mode}
+                  {fmtDate(s.period_from)}–{fmtDate(s.period_to)} · {s.household_id ? householdMap.get(s.household_id) : ""} · {modeLabel(s.optimization_mode)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -564,7 +565,7 @@ export default function ResultatLoggar({
           .from("household_profiles")
           .select("id, name, house_type, area_m2, price_area, heating_type, car_model, battery_kwh, ev_model_id")
           .order("name"),
-        supabase.from("ev_models").select("id, brand, model, battery_kwh, v2x_capable"),
+        supabase.from("ev_models").select("id, brand, model, battery_kwh, ccs2_port"),
       ]);
       setSims((simData ?? []) as SimRow[]);
       const hhRows = (hhData ?? []) as Array<HouseholdRow & {
@@ -573,7 +574,7 @@ export default function ResultatLoggar({
         ev_model_id: string | null;
       }>;
       setHouseholds(hhRows.map((h) => ({ id: h.id, name: h.name })));
-      const evMap = new Map<string, { brand: string; model: string; battery_kwh: number; v2x_capable: boolean }>();
+      const evMap = new Map<string, { brand: string; model: string; battery_kwh: number; ccs2_port: boolean }>();
       (evData ?? []).forEach((e: any) => evMap.set(e.id, e));
       setHouseholdCards(hhRows.map((h) => {
         const ev = h.ev_model_id ? evMap.get(h.ev_model_id) : undefined;
@@ -589,7 +590,7 @@ export default function ResultatLoggar({
           ev_brand: ev?.brand ?? null,
           ev_model: ev?.model ?? null,
           ev_battery: ev?.battery_kwh ?? null,
-          v2x_capable: !!ev?.v2x_capable,
+          ccs2_port: ev?.ccs2_port !== false,
         };
       }));
     })();

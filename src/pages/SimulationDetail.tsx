@@ -14,6 +14,7 @@ import {
 } from "recharts";
 import EventTimeline from "@/components/EventTimeline";
 import DecisionViewer from "@/components/DecisionViewer";
+import { modeLongLabel } from "@/lib/optimizationModes";
 
 interface Props { simulationId: string; onBack: () => void }
 const PAGE_SIZE = 50;
@@ -83,7 +84,7 @@ export default function SimulationDetail({ simulationId, onBack }: Props) {
   const copySummary = async () => {
     const txt = `ZenOS Simulering — ${household?.name ?? "—"}
 Period: ${sim.period_from} - ${sim.period_to}
-Optimeringsläge: ${sim.optimization_mode}
+Optimeringsläge: ${modeLongLabel(sim.optimization_mode)}
 Total besparing: ${num(sim.total_saved_sek)} SEK
   - Prisoptimering: ${num(sim.price_savings_sek)} SEK
   - V2H: ${num(sim.total_v2h_saving_sek)} SEK
@@ -136,7 +137,7 @@ Beslut loggade: ${logs.length}`;
               <div>
                 <h2 className="text-2xl font-semibold">{household?.name ?? "—"}</h2>
                 <p className="text-sm text-muted-foreground mt-1">
-                  {sim.period_from} → {sim.period_to} · <span className="capitalize">{sim.optimization_mode}</span>
+                  {sim.period_from} → {sim.period_to} · <span>{modeLongLabel(sim.optimization_mode)}</span>
                   {sim.scenarios > 1 && (
                     <span> · Scenario {sim.scenario_number ?? 1}/{sim.scenarios}</span>
                   )}

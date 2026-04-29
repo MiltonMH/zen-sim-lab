@@ -17,12 +17,14 @@ import type { DateRange } from "react-day-picker";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { OPTIMIZATION_MODES } from "@/lib/optimizationModes";
 
-const modes = [
-  { id: "none", label: "No optimization", desc: "Baseline — charge whenever connected" },
-  { id: "price", label: "Price optimization", desc: "Charge during the cheapest hours" },
-  { id: "full", label: "Full ZenOS", desc: "Price + grid tariff + battery health" },
-];
+const modes = OPTIMIZATION_MODES.map((m) => ({
+  id: m.id,
+  label: m.longLabel,
+  desc: m.description,
+  requiresCcs2: m.requiresCcs2,
+}));
 
 const PRICE_THRESHOLDS = [1.5, 2.0, 2.5];
 const SECONDS_PER_SCENARIO = 3; // rough estimate for ETA
@@ -42,7 +44,7 @@ interface RunResult {
   total_v2h_kwh: number;
   peak_hours_avoided: number;
   avg_price_paid: number;
-  v2x_capable: boolean;
+  ccs2_port: boolean;
   decisions_logged: number;
   days_processed: number;
 }
@@ -103,20 +105,20 @@ export default function SimulationRunner({
 }: { initialMode?: "single" | "bulk"; preselectedHouseholdId?: string; embedded?: boolean } = {}) {
   const [pageMode, setPageMode] = useState<"single" | "bulk">(initialMode);
   const [households, setHouseholds] = useState<Household[]>([]);
-  const [evMap, setEvMap] = useState<Record<string, { v2x_capable: boolean; brand: string; model: string }>>({});
+  const [evMap, setEvMap] = useState<Record<string, { ccs2_port: boolean; brand: string; model: string }>>({});
   const [bounds, setBounds] = useState<{ min: Date; max: Date } | null>(null);
 
   useEffect(() => {
     (async () => {
       const [{ data: hh }, { data: ev }, { data: minRow }, { data: maxRow }] = await Promise.all([
         supabase.from("household_profiles").select("id,name,car_model,price_area,ev_model_id").order("created_at", { ascending: false }),
-        supabase.from("ev_models").select("id,brand,model,v2x_capable"),
+        supabase.from("ev_models").select("id,brand,model,ccs2_port"),
         supabase.from("spot_prices").select("hour").order("hour", { ascending: true }).limit(1).maybeSingle(),
         supabase.from("spot_prices").select("hour").order("hour", { ascending: false }).limit(1).maybeSingle(),
       ]);
       setHouseholds((hh ?? []) as Household[]);
       const m: Record<string, any> = {};
-      (ev ?? []).forEach((e: any) => { m[e.id] = e; });
+      (ev ?? []).forEach((e: any) => { m[e.id] = { ...e, ccs2_port: e.ccs2_port !== false }; });
       setEvMap(m);
       if (minRow?.hour && maxRow?.hour) setBounds({ min: new Date(minRow.hour), max: new Date(maxRow.hour) });
     })();
@@ -154,15 +156,20 @@ export default function SimulationRunner({
       )}
 
       {pageMode === "single"
-        ? <SingleMode households={households} bounds={bounds} preselectedHouseholdId={preselectedHouseholdId} />
+        ? <SingleMode households={households} evMap={evMap} bounds={bounds} preselectedHouseholdId={preselectedHouseholdId} />
         : <BulkMode households={households} evMap={evMap} bounds={bounds} />}
     </div>
   );
 }
 
 /* ============================ SINGLE MODE ============================ */
-function SingleMode({ households, bounds, preselectedHouseholdId }: { households: Household[]; bounds: { min: Date; max: Date } | null; preselectedHouseholdId?: string }) {
-  const [mode, setMode] = useState("price");
+function SingleMode({ households, evMap, bounds, preselectedHouseholdId }: {
+  households: Household[];
+  evMap: Record<string, { ccs2_port: boolean; brand: string; model: string }>;
+  bounds: { min: Date; max: Date } | null;
+  preselectedHouseholdId?: string;
+}) {
+  const [mode, setMode] = useState<string>("smart_charge");
   const [scenarios, setScenarios] = useState([10]);
   const [range, setRange] = useState<DateRange | undefined>(undefined);
   const [householdId, setHouseholdId] = useState<string>(preselectedHouseholdId ?? "");
@@ -195,6 +202,15 @@ function SingleMode({ households, bounds, preselectedHouseholdId }: { households
     else toast.success(`${ok.length} scenarion klara`);
   };
 
+  const selectedHousehold = households.find(h => h.id === householdId);
+  const selectedEv = selectedHousehold?.ev_model_id ? evMap[selectedHousehold.ev_model_id] : undefined;
+  const hasCcs2 = selectedEv ? selectedEv.ccs2_port !== false : true;
+
+  // Auto-fall-back if user picks a non-CCS2 car while v2x mode is active
+  useEffect(() => {
+    if (!hasCcs2 && mode === "smart_v2x") setMode("smart_charge");
+  }, [hasCcs2, mode]);
+
   const canRun = householdId && range?.from && range?.to;
   const successful = outcomes.filter(o => o.result) as Array<ScenarioRunOutcome & { result: RunResult }>;
   const stats = successful.length > 0 ? {
@@ -220,19 +236,32 @@ function SingleMode({ households, bounds, preselectedHouseholdId }: { households
 
       <Section title="Optimization mode">
         <RadioGroup value={mode} onValueChange={setMode} className="space-y-2">
-          {modes.map(m => (
-            <label key={m.id} htmlFor={m.id}
-              className={cn(
-                "flex items-start gap-3 rounded-xl border p-4 cursor-pointer transition-colors",
-                mode === m.id ? "border-primary bg-primary-muted/40" : "border-border hover:bg-muted/40"
-              )}>
-              <RadioGroupItem id={m.id} value={m.id} className="mt-0.5" />
-              <div>
-                <div className="text-sm font-medium">{m.label}</div>
-                <div className="text-xs text-muted-foreground mt-0.5">{m.desc}</div>
-              </div>
-            </label>
-          ))}
+          {modes.map(m => {
+            const disabled = m.requiresCcs2 && !hasCcs2;
+            return (
+              <label
+                key={m.id}
+                htmlFor={m.id}
+                title={disabled ? "Kräver V2X-kapabel bil. Byt till Hyundai Ioniq 5, Kia EV6/EV9, Nissan Leaf eller annan V2X-bil." : m.desc}
+                className={cn(
+                  "flex items-start gap-3 rounded-xl border p-4 transition-colors",
+                  disabled ? "opacity-50 cursor-not-allowed border-border" :
+                    mode === m.id ? "border-primary bg-primary-muted/40 cursor-pointer" : "border-border hover:bg-muted/40 cursor-pointer"
+                )}
+              >
+                <RadioGroupItem id={m.id} value={m.id} className="mt-0.5" disabled={disabled} />
+                <div>
+                  <div className="text-sm font-medium">{m.label}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">{m.desc}</div>
+                  {disabled && (
+                    <div className="text-[11px] text-amber-600 mt-1">
+                      Kräver V2X-kapabel bil med CCS2-port.
+                    </div>
+                  )}
+                </div>
+              </label>
+            );
+          })}
         </RadioGroup>
       </Section>
 
@@ -282,19 +311,29 @@ interface HouseholdProgress {
 
 function BulkMode({ households, evMap, bounds }: {
   households: Household[];
-  evMap: Record<string, { v2x_capable: boolean; brand: string; model: string }>;
+  evMap: Record<string, { ccs2_port: boolean; brand: string; model: string }>;
   bounds: { min: Date; max: Date } | null;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [sameSettings, setSameSettings] = useState(true);
   const [sharedRange, setSharedRange] = useState<DateRange | undefined>(undefined);
-  const [sharedMode, setSharedMode] = useState("price");
+  const [sharedMode, setSharedMode] = useState<string>("smart_charge");
   const [sharedScenarios, setSharedScenarios] = useState([10]);
   const [perCfg, setPerCfg] = useState<Record<string, PerHouseholdConfig>>({});
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<Record<string, HouseholdProgress>>({});
   const [done, setDone] = useState(false);
   const [startedAt, setStartedAt] = useState<number | null>(null);
+
+  // Auto-fall-back from Nivå 3 if any selected household lacks CCS2
+  useEffect(() => {
+    if (sharedMode !== "smart_v2x") return;
+    const blocked = Array.from(selected).some(id => {
+      const evId = households.find(h => h.id === id)?.ev_model_id;
+      return evId ? evMap[evId]?.ccs2_port === false : false;
+    });
+    if (blocked) setSharedMode("smart_charge");
+  }, [selected, sharedMode, households, evMap]);
 
   useEffect(() => {
     if (!bounds || sharedRange) return;
@@ -521,7 +560,7 @@ function BulkMode({ households, evMap, bounds }: {
                   <div className="text-sm font-medium truncate">{h.name}</div>
                   <div className="flex flex-wrap gap-1.5 mt-1.5 text-[10px]">
                     {(ev || h.car_model) && <span className="rounded-full bg-muted px-2 py-0.5">{ev ? `${ev.brand} ${ev.model}` : h.car_model}</span>}
-                    {ev?.v2x_capable && <span className="rounded-full bg-sky-500/15 text-sky-700 px-2 py-0.5 font-semibold">V2X</span>}
+                    {ev?.ccs2_port !== false && <span className="rounded-full bg-emerald-500/15 text-emerald-700 px-2 py-0.5 font-semibold">CCS2</span>}
                     {h.price_area && <span className="rounded-full bg-muted px-2 py-0.5">{h.price_area}</span>}
                   </div>
                 </div>
@@ -546,19 +585,38 @@ function BulkMode({ households, evMap, bounds }: {
             <div>
               <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Optimization mode</Label>
               <RadioGroup value={sharedMode} onValueChange={setSharedMode} className="space-y-2 mt-2.5">
-                {modes.map(m => (
-                  <label key={m.id} htmlFor={`s-${m.id}`}
-                    className={cn(
-                      "flex items-start gap-3 rounded-xl border p-3 cursor-pointer transition-colors",
-                      sharedMode === m.id ? "border-primary bg-primary-muted/40" : "border-border hover:bg-muted/40"
-                    )}>
-                    <RadioGroupItem id={`s-${m.id}`} value={m.id} className="mt-0.5" />
-                    <div>
-                      <div className="text-sm font-medium">{m.label}</div>
-                      <div className="text-xs text-muted-foreground mt-0.5">{m.desc}</div>
-                    </div>
-                  </label>
-                ))}
+                {modes.map(m => {
+                  const blockingHouseholds = m.requiresCcs2
+                    ? Array.from(selected).filter(id => {
+                        const ev = households.find(h => h.id === id)?.ev_model_id;
+                        return ev ? evMap[ev]?.ccs2_port === false : false;
+                      })
+                    : [];
+                  const disabled = blockingHouseholds.length > 0;
+                  return (
+                    <label
+                      key={m.id}
+                      htmlFor={`s-${m.id}`}
+                      title={disabled ? "Minst ett valt hushåll har en bil utan CCS2-port — inte kompatibel med Nivå 3." : m.desc}
+                      className={cn(
+                        "flex items-start gap-3 rounded-xl border p-3 transition-colors",
+                        disabled ? "opacity-50 cursor-not-allowed border-border" :
+                          sharedMode === m.id ? "border-primary bg-primary-muted/40 cursor-pointer" : "border-border hover:bg-muted/40 cursor-pointer"
+                      )}
+                    >
+                      <RadioGroupItem id={`s-${m.id}`} value={m.id} className="mt-0.5" disabled={disabled} />
+                      <div>
+                        <div className="text-sm font-medium">{m.label}</div>
+                        <div className="text-xs text-muted-foreground mt-0.5">{m.desc}</div>
+                        {disabled && (
+                          <div className="text-[11px] text-amber-600 mt-1">
+                            Kräver V2X-kapabel bil med CCS2-port hos alla valda hushåll.
+                          </div>
+                        )}
+                      </div>
+                    </label>
+                  );
+                })}
               </RadioGroup>
             </div>
             <div>
