@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ArrowLeft, Download, ChevronDown } from "lucide-react";
@@ -11,6 +12,7 @@ import { toast } from "sonner";
 import {
   ComposedChart, Line, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Legend, ReferenceLine,
 } from "recharts";
+import EventTimeline from "@/components/EventTimeline";
 
 interface Props { simulationId: string; onBack: () => void }
 const PAGE_SIZE = 50;
