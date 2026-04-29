@@ -23,6 +23,13 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
+const GRID_COMPANIES_BY_AREA = {
+  SE1: ["Luleå Energi Elnät", "Skellefteå Kraft Elnät", "Umeå Energi Elnät"],
+  SE2: ["Tekniska Verken Linköping", "Jämtkraft Elnät"],
+  SE3: ["Göteborg Energi Nät", "Vattenfall Eldistribution", "E.ON Energidistribution", "Ellevio"],
+  SE4: ["Kraftringen Nät"],
+} as const;
+
 interface Household {
   id: string;
   name: string;
