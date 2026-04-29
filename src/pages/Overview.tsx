@@ -77,7 +77,7 @@ export default function Overview() {
           .select("id, household_id, period_from, period_to, total_saved_sek, total_v2h_saving_sek, avg_price_paid, status, started_at, ended_at")
           .order("started_at", { ascending: false })
           .limit(500),
-        supabase.from("household_profiles").select("id, name"),
+        supabase.from("household_profiles").select("id, name, household_type"),
         supabase.from("grid_tariff_sources").select("*", { count: "exact", head: true }),
       ]);
       setSims((simData ?? []) as SimRow[]);
