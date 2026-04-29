@@ -297,6 +297,8 @@ function PerHouseholdTab({
   households: HouseholdCardData[];
   onOpenHousehold: (id: string) => void;
 }) {
+  const [typeFilter, setTypeFilter] = useState<"all" | HouseholdType>("all");
+
   const grouped = useMemo(() => {
     const g = new Map<string, SimRow[]>();
     sims.forEach((s) => {
@@ -306,6 +308,7 @@ function PerHouseholdTab({
       g.set(s.household_id, arr);
     });
     return households
+      .filter((hh) => typeFilter === "all" || (hh.household_type ?? "training") === typeFilter)
       .map((hh) => {
         const rows = (g.get(hh.id) ?? []).sort((a, b) => (a.started_at ?? "").localeCompare(b.started_at ?? ""));
         const totalSaved = rows.reduce((a, r) => a + Number(r.total_saved_sek ?? 0), 0);
@@ -325,17 +328,39 @@ function PerHouseholdTab({
       })
       .filter((h) => h.rows.length > 0)
       .sort((a, b) => b.totalSaved - a.totalSaved);
-  }, [sims, households]);
+  }, [sims, households, typeFilter]);
+
+  const filterTabs = (
+    <Tabs value={typeFilter} onValueChange={(v) => setTypeFilter(v as "all" | HouseholdType)}>
+      <TabsList className="rounded-full bg-muted p-1">
+        {HOUSEHOLD_TYPE_FILTERS.map((f) => {
+          const count = f.value === "all"
+            ? households.length
+            : households.filter(h => (h.household_type ?? "training") === f.value).length;
+          return (
+            <TabsTrigger key={f.value} value={f.value} className="rounded-full px-4 gap-2">
+              {f.label} <span className="text-[11px] text-muted-foreground tabular-nums">({count})</span>
+            </TabsTrigger>
+          );
+        })}
+      </TabsList>
+    </Tabs>
+  );
 
   if (grouped.length === 0) {
     return (
-      <Card className="rounded-2xl border-border/60 shadow-card p-10 text-center text-sm text-muted-foreground">
-        Inga simuleringar ännu.
-      </Card>
+      <div className="space-y-4">
+        {filterTabs}
+        <Card className="rounded-2xl border-border/60 shadow-card p-10 text-center text-sm text-muted-foreground">
+          Inga simuleringar i denna kategori.
+        </Card>
+      </div>
     );
   }
 
   return (
+    <div className="space-y-4">
+      {filterTabs}
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       {grouped.map((g) => {
         const carText = g.ev_brand
