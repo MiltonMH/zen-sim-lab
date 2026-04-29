@@ -9,7 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Plus, Home, Car, Battery, MapPin, Check, ChevronsUpDown, Flame, Users, Clock, Zap } from "lucide-react";
+import { Plus, Home, Car, Check, ChevronsUpDown, Flame, Clock, Zap, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
@@ -17,6 +17,11 @@ import {
   HEATING_KWH_PER_M2, HEATING_LABELS, ROUTINE_LABELS,
   calcAnnualKwh, buildHourlyWeights,
 } from "@/lib/householdCalc";
+import HouseholdDetail from "@/pages/HouseholdDetail";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface Household {
   id: string;
@@ -33,6 +38,18 @@ interface Household {
   heating_type: string | null;
   routine_type: string | null;
   annual_kwh: number | null;
+  build_year?: number | null;
+  insulation_quality?: string | null;
+  has_solar_panels?: boolean | null;
+  solar_kwh_per_year?: number | null;
+  adults?: number | null;
+  children?: number | null;
+  children_ages?: string | null;
+  home_during_day?: boolean | null;
+  wake_time?: number | null;
+  leave_time?: number | null;
+  return_time?: number | null;
+  sleep_time?: number | null;
 }
 
 interface EvModel {
@@ -57,6 +74,9 @@ export default function Households() {
   const [saving, setSaving] = useState(false);
   const [evPickerOpen, setEvPickerOpen] = useState(false);
   const [annualOverride, setAnnualOverride] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Household | null>(null);
 
   const [form, setForm] = useState({
     name: "",
@@ -145,10 +165,68 @@ export default function Households() {
     setEvPickerOpen(false);
   };
 
+  const resetForm = () => {
+    setForm({
+      name: "", house_type: "villa", area_m2: "140", price_area: "SE3", grid_company: "",
+      build_year: "1990", insulation_quality: "normal", heating_type: "värmepump_luft",
+      has_solar_panels: false, solar_kwh_per_year: "",
+      adults: 2, children: 0, children_ages: "", home_during_day: false,
+      routine_type: "pendlare", wake_time: 6, leave_time: 7, return_time: 17, sleep_time: 23,
+      ev_model_id: "", car_model: "", battery_kwh: "", daily_km: "40", commuter_type: "pendlare",
+      annual_kwh: "",
+    });
+    setAnnualOverride(false);
+    setEditId(null);
+  };
+
+  const handleEdit = (h: Household) => {
+    setEditId(h.id);
+    setAnnualOverride(true);
+    setForm({
+      name: h.name ?? "",
+      house_type: h.house_type ?? "villa",
+      area_m2: h.area_m2?.toString() ?? "",
+      price_area: h.price_area ?? "SE3",
+      grid_company: h.grid_company ?? "",
+      build_year: (h as any).build_year?.toString() ?? "",
+      insulation_quality: (h as any).insulation_quality ?? "normal",
+      heating_type: h.heating_type ?? "värmepump_luft",
+      has_solar_panels: !!(h as any).has_solar_panels,
+      solar_kwh_per_year: (h as any).solar_kwh_per_year?.toString() ?? "",
+      adults: (h as any).adults ?? 2,
+      children: (h as any).children ?? 0,
+      children_ages: (h as any).children_ages ?? "",
+      home_during_day: !!(h as any).home_during_day,
+      routine_type: h.routine_type ?? "pendlare",
+      wake_time: (h as any).wake_time ?? 6,
+      leave_time: (h as any).leave_time ?? 7,
+      return_time: (h as any).return_time ?? 17,
+      sleep_time: (h as any).sleep_time ?? 23,
+      ev_model_id: h.ev_model_id ?? "",
+      car_model: h.car_model ?? "",
+      battery_kwh: h.battery_kwh?.toString() ?? "",
+      daily_km: h.daily_km?.toString() ?? "40",
+      commuter_type: h.commuter_type ?? "pendlare",
+      annual_kwh: h.annual_kwh?.toString() ?? "",
+    });
+    setOpen(true);
+  };
+
+  const handleDelete = async (h: Household) => {
+    await supabase.from("consumption_profiles").delete().eq("household_id", h.id);
+    await supabase.from("simulation_runs").delete().eq("household_id", h.id);
+    const { error } = await supabase.from("household_profiles").delete().eq("id", h.id);
+    if (error) { toast.error(error.message); return; }
+    toast.success(`${h.name} borttagen`);
+    setDeleteTarget(null);
+    if (selectedId === h.id) setSelectedId(null);
+    fetchData();
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    const { data, error } = await supabase.from("household_profiles").insert({
+    const payload = {
       name: form.name,
       house_type: form.house_type,
       area_m2: form.area_m2 ? Number(form.area_m2) : null,
@@ -174,26 +252,43 @@ export default function Households() {
       daily_km: form.daily_km ? Number(form.daily_km) : null,
       commuter_type: form.commuter_type,
       annual_kwh: form.annual_kwh ? Number(form.annual_kwh) : null,
-    }).select("id").single();
+    };
 
-    if (error || !data) {
-      setSaving(false);
-      toast.error(error?.message || "Failed to save");
-      return;
+    let id = editId;
+    if (editId) {
+      const { error } = await supabase.from("household_profiles").update(payload).eq("id", editId);
+      if (error) { setSaving(false); toast.error(error.message); return; }
+    } else {
+      const { data, error } = await supabase.from("household_profiles").insert(payload).select("id").single();
+      if (error || !data) { setSaving(false); toast.error(error?.message || "Failed to save"); return; }
+      id = data.id;
     }
 
-    // Generate consumption profile
+    // Replace consumption profile
     const weights = buildHourlyWeights(form.routine_type, form.leave_time, form.return_time);
-    const rows = weights.map((w, h) => ({ household_id: data.id, hour: h, weight: w }));
+    await supabase.from("consumption_profiles").delete().eq("household_id", id!);
+    const rows = weights.map((w, h) => ({ household_id: id!, hour: h, weight: w }));
     const { error: cpErr } = await supabase.from("consumption_profiles").insert(rows);
     if (cpErr) toast.warning(`Profile not saved: ${cpErr.message}`);
 
     setSaving(false);
-    toast.success("Household saved");
+    toast.success(editId ? "Hushåll uppdaterat" : "Hushåll sparat");
     setOpen(false);
-    setAnnualOverride(false);
+    resetForm();
     fetchData();
   };
+
+  if (selectedId) {
+    return (
+      <HouseholdDetail
+        householdId={selectedId}
+        onBack={() => setSelectedId(null)}
+        onEdit={(h) => handleEdit(h as Household)}
+        onDeleted={() => { setSelectedId(null); fetchData(); }}
+        onStartSim={() => { /* TODO: navigate to runner with preselected household */ }}
+      />
+    );
+  }
 
   return (
     <div className="space-y-10">
@@ -202,7 +297,7 @@ export default function Households() {
           <h1 className="text-3xl font-semibold tracking-tight">Virtual Households</h1>
           <p className="text-muted-foreground mt-1.5 text-sm">Define households used as inputs to simulations.</p>
         </div>
-        <Button onClick={() => setOpen(true)} className="rounded-full bg-primary hover:bg-primary/90 text-primary-foreground gap-2">
+        <Button onClick={() => { resetForm(); setOpen(true); }} className="rounded-full bg-primary hover:bg-primary/90 text-primary-foreground gap-2">
           <Plus className="h-4 w-4" /> New household
         </Button>
       </header>
@@ -224,15 +319,37 @@ export default function Households() {
           <p className="text-sm text-muted-foreground mt-1.5 max-w-sm">
             Create your first virtual household to begin simulating energy consumption
           </p>
-          <Button onClick={() => setOpen(true)} className="rounded-full bg-primary hover:bg-primary/90 text-primary-foreground mt-6 gap-2">
+          <Button onClick={() => { resetForm(); setOpen(true); }} className="rounded-full bg-primary hover:bg-primary/90 text-primary-foreground mt-6 gap-2">
             <Plus className="h-4 w-4" /> Create first household
           </Button>
         </div>
       ) : (
         <div className="grid grid-cols-3 gap-4">
           {items.map((h) => (
-            <Card key={h.id} className="rounded-2xl border-border/60 shadow-card p-6 space-y-4">
-              <div className="flex items-start justify-between">
+            <Card
+              key={h.id}
+              onClick={() => setSelectedId(h.id)}
+              className="group relative rounded-2xl border-border/60 shadow-card p-6 space-y-4 cursor-pointer hover:border-primary/40 hover:shadow-md transition-all"
+            >
+              <div className="absolute top-3 right-3 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); handleEdit(h); }}
+                  className="h-7 w-7 rounded-full bg-background/80 backdrop-blur border flex items-center justify-center hover:bg-accent"
+                  aria-label="Redigera"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setDeleteTarget(h); }}
+                  className="h-7 w-7 rounded-full bg-background/80 backdrop-blur border flex items-center justify-center hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30"
+                  aria-label="Ta bort"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <div className="flex items-start justify-between pr-16">
                 <div>
                   <h3 className="font-semibold text-base">{h.name}</h3>
                   <p className="text-xs text-muted-foreground capitalize mt-0.5">{h.house_type}</p>
@@ -251,11 +368,11 @@ export default function Households() {
         </div>
       )}
 
-      <Sheet open={open} onOpenChange={setOpen}>
+      <Sheet open={open} onOpenChange={(o) => { setOpen(o); if (!o) resetForm(); }}>
         <SheetContent className="sm:max-w-lg overflow-y-auto">
           <SheetHeader>
-            <SheetTitle>New household</SheetTitle>
-            <SheetDescription>Define a virtual household profile.</SheetDescription>
+            <SheetTitle>{editId ? "Redigera hushåll" : "New household"}</SheetTitle>
+            <SheetDescription>{editId ? "Uppdatera hushållsprofilen." : "Define a virtual household profile."}</SheetDescription>
           </SheetHeader>
 
           <form onSubmit={handleSubmit} className="space-y-5 mt-6 pb-10">
@@ -431,11 +548,31 @@ export default function Households() {
             </Accordion>
 
             <Button type="submit" disabled={saving} className="w-full rounded-full bg-primary hover:bg-primary/90 text-primary-foreground">
-              {saving ? "Sparar..." : "Spara hushåll"}
+              {saving ? "Sparar..." : editId ? "Uppdatera hushåll" : "Spara hushåll"}
             </Button>
           </form>
         </SheetContent>
       </Sheet>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Ta bort hushåll?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Är du säker på att du vill ta bort <strong>{deleteTarget?.name}</strong>? Detta tar även bort all simuleringsdata för detta hushåll.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Avbryt</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteTarget && handleDelete(deleteTarget)}
+              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+            >
+              Ta bort
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
