@@ -1,13 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Home, Car, Battery, MapPin } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Plus, Home, Car, Battery, MapPin, Check, ChevronsUpDown } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { cn } from "@/lib/utils";
 
 interface Household {
   id: string;
@@ -20,14 +23,27 @@ interface Household {
   battery_kwh: number | null;
   daily_km: number | null;
   commuter_type: string | null;
+  ev_model_id: string | null;
+}
+
+interface EvModel {
+  id: string;
+  brand: string;
+  model: string;
+  battery_kwh: number;
+  range_km: number | null;
+  max_charge_kw: number | null;
+  v2x_capable: boolean;
 }
 
 export default function Households() {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<Household[]>([]);
+  const [evModels, setEvModels] = useState<EvModel[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [evPickerOpen, setEvPickerOpen] = useState(false);
 
   const [form, setForm] = useState({
     name: "",
@@ -35,6 +51,7 @@ export default function Households() {
     area_m2: "",
     price_area: "SE3",
     grid_company: "",
+    ev_model_id: "",
     car_model: "",
     battery_kwh: "",
     daily_km: "",
@@ -43,16 +60,35 @@ export default function Households() {
 
   const fetchData = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("household_profiles")
-      .select("*")
-      .order("created_at", { ascending: false });
-    if (error) setError(error.message);
-    else { setItems(data as Household[]); setError(null); }
+    const [{ data: hh, error: hErr }, { data: evs, error: eErr }] = await Promise.all([
+      supabase.from("household_profiles").select("*").order("created_at", { ascending: false }),
+      supabase.from("ev_models").select("*").order("brand").order("model"),
+    ]);
+    if (hErr || eErr) setError((hErr || eErr)!.message);
+    else {
+      setItems(hh as Household[]);
+      setEvModels(evs as EvModel[]);
+      setError(null);
+    }
     setLoading(false);
   };
 
   useEffect(() => { fetchData(); }, []);
+
+  const selectedEv = useMemo(
+    () => evModels.find(e => e.id === form.ev_model_id) || null,
+    [evModels, form.ev_model_id]
+  );
+
+  const handleSelectEv = (ev: EvModel) => {
+    setForm(f => ({
+      ...f,
+      ev_model_id: ev.id,
+      car_model: `${ev.brand} ${ev.model}`,
+      battery_kwh: String(ev.battery_kwh),
+    }));
+    setEvPickerOpen(false);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,6 +99,7 @@ export default function Households() {
       area_m2: form.area_m2 ? Number(form.area_m2) : null,
       price_area: form.price_area,
       grid_company: form.grid_company || null,
+      ev_model_id: form.ev_model_id || null,
       car_model: form.car_model || null,
       battery_kwh: form.battery_kwh ? Number(form.battery_kwh) : null,
       daily_km: form.daily_km ? Number(form.daily_km) : null,
@@ -75,7 +112,7 @@ export default function Households() {
     }
     toast.success("Household saved");
     setOpen(false);
-    setForm({ ...form, name: "", area_m2: "", grid_company: "", car_model: "", battery_kwh: "", daily_km: "" });
+    setForm({ ...form, name: "", area_m2: "", grid_company: "", ev_model_id: "", car_model: "", battery_kwh: "", daily_km: "" });
     fetchData();
   };
 
@@ -174,7 +211,68 @@ export default function Households() {
               </Select>
             </Field>
             <Field label="Grid company"><Input value={form.grid_company} onChange={e => setForm({...form, grid_company: e.target.value})} placeholder="Ellevio" /></Field>
-            <Field label="Car model"><Input value={form.car_model} onChange={e => setForm({...form, car_model: e.target.value})} placeholder="Tesla Model Y" /></Field>
+
+            <Field label="EV model">
+              <Popover open={evPickerOpen} onOpenChange={setEvPickerOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    role="combobox"
+                    className="w-full justify-between font-normal"
+                  >
+                    {selectedEv ? (
+                      <span className="flex items-center gap-2 truncate">
+                        <span className="truncate">{selectedEv.brand} {selectedEv.model}</span>
+                        <span className="text-xs text-muted-foreground">{selectedEv.battery_kwh} kWh</span>
+                        {selectedEv.v2x_capable && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 font-semibold">V2X</span>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">Search brand or model…</span>
+                    )}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                  <Command
+                    filter={(value, search) => {
+                      // value is the lowercased text we set on CommandItem
+                      return value.includes(search.toLowerCase()) ? 1 : 0;
+                    }}
+                  >
+                    <CommandInput placeholder="Search brand or model..." />
+                    <CommandList>
+                      <CommandEmpty>No EV found.</CommandEmpty>
+                      <CommandGroup>
+                        {evModels.map(ev => {
+                          const label = `${ev.brand} ${ev.model}`;
+                          return (
+                            <CommandItem
+                              key={ev.id}
+                              value={`${ev.brand} ${ev.model}`.toLowerCase()}
+                              onSelect={() => handleSelectEv(ev)}
+                              className="flex items-center justify-between gap-2"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <Check className={cn("h-4 w-4", form.ev_model_id === ev.id ? "opacity-100" : "opacity-0")} />
+                                <span className="truncate">{label}</span>
+                                <span className="text-xs text-muted-foreground shrink-0">{ev.battery_kwh} kWh</span>
+                              </div>
+                              {ev.v2x_capable && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 font-semibold shrink-0">V2X</span>
+                              )}
+                            </CommandItem>
+                          );
+                        })}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </Field>
+
             <Field label="Battery capacity kWh"><Input type="number" value={form.battery_kwh} onChange={e => setForm({...form, battery_kwh: e.target.value})} placeholder="75" /></Field>
             <Field label="Daily km"><Input type="number" value={form.daily_km} onChange={e => setForm({...form, daily_km: e.target.value})} placeholder="40" /></Field>
             <Field label="Commuter type">
