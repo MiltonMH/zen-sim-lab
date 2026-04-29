@@ -101,6 +101,7 @@ export default function HouseholdProfile({
 }) {
   const [hh, setHh] = useState<HouseholdFull | null>(null);
   const [ev, setEv] = useState<EvModel | null>(null);
+  const [peakTariff, setPeakTariff] = useState<number | null>(null);
   const [sims, setSims] = useState<SimRow[]>([]);
   const [logs, setLogs] = useState<OptLog[]>([]);
   const [loading, setLoading] = useState(true);
