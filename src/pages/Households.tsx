@@ -326,8 +326,30 @@ export default function Households() {
       ) : (
         <div className="grid grid-cols-3 gap-4">
           {items.map((h) => (
-            <Card key={h.id} className="rounded-2xl border-border/60 shadow-card p-6 space-y-4">
-              <div className="flex items-start justify-between">
+            <Card
+              key={h.id}
+              onClick={() => setSelectedId(h.id)}
+              className="group relative rounded-2xl border-border/60 shadow-card p-6 space-y-4 cursor-pointer hover:border-primary/40 hover:shadow-md transition-all"
+            >
+              <div className="absolute top-3 right-3 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); handleEdit(h); }}
+                  className="h-7 w-7 rounded-full bg-background/80 backdrop-blur border flex items-center justify-center hover:bg-accent"
+                  aria-label="Redigera"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setDeleteTarget(h); }}
+                  className="h-7 w-7 rounded-full bg-background/80 backdrop-blur border flex items-center justify-center hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30"
+                  aria-label="Ta bort"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <div className="flex items-start justify-between pr-16">
                 <div>
                   <h3 className="font-semibold text-base">{h.name}</h3>
                   <p className="text-xs text-muted-foreground capitalize mt-0.5">{h.house_type}</p>
