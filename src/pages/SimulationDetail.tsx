@@ -178,6 +178,20 @@ Simulation ID: ${simulationId}`;
               <StatusPill status={sim.status} />
             </div>
 
+            {sim.warnings && Object.keys(sim.warnings).length > 0 && (
+              <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 flex gap-3">
+                <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <div className="text-sm font-semibold text-amber-700">Varningar för denna simulering</div>
+                  <ul className="text-xs text-amber-700/90 space-y-0.5 list-disc pl-4">
+                    {Object.entries(sim.warnings as Record<string, string>).map(([k, v]) => (
+                      <li key={k}><span className="font-mono opacity-70">{k}:</span> {v}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
+
             {sim.scenario_params && (
               <div className="rounded-xl border border-border/40 bg-muted/30 p-4">
                 <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Scenarioparametrar</div>
