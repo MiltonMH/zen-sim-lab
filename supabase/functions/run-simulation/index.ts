@@ -194,6 +194,8 @@ Deno.serve(async (req) => {
     // 3c. Peak tariff (SEK/kW/month) for this grid company
     let peakTariffPerKw = DEFAULT_PEAK_TARIFF;
     let hasPeakTariff = true;
+    let peakTariffMissing = false;
+    const warnings: Record<string, string> = {};
     if (hh.grid_company) {
       const { data: gcs } = await supabase
         .from("grid_company_settings")
@@ -202,7 +204,14 @@ Deno.serve(async (req) => {
       if (gcs) {
         peakTariffPerKw = Number(gcs.peak_tariff_sek_per_kw) || DEFAULT_PEAK_TARIFF;
         hasPeakTariff = gcs.has_peak_tariff !== false;
+      } else {
+        peakTariffMissing = true;
+        warnings.grid_tariff_warning = `${hh.grid_company} ej funnen i grid_company_settings — standardvärde ${DEFAULT_PEAK_TARIFF} SEK/kW används`;
+        console.warn(`[run-simulation] grid_company "${hh.grid_company}" not found, using default peak tariff`);
       }
+    } else {
+      peakTariffMissing = true;
+      warnings.grid_tariff_warning = "Inget elnätsbolag valt — standardvärde 55 SEK/kW används";
     }
 
     const byDay = new Map<string, DayHour[]>();
