@@ -211,20 +211,24 @@ Deno.serve(async (req) => {
         return { ...h, idx, combined };
       });
 
-      // Pick top N candidates by combined score, but apply hard rules
-      const ranked = [...scored].sort((a, b) => b.combined - a.combined);
-      const pickedCharge = new Set<number>(ranked.slice(0, TARGET_CHARGE_HOURS).map(r => r.idx));
-
-      // Bug 2 fix — TRULY DUMB BASELINE (computed AFTER optimized run below):
-      // Baseline charges the SAME total kWh as optimized, but picks the FIRST connected hours
-      // chronologically (no price-shopping). Same kWh + dumber hour selection → baseline cost
-      // is always ≥ optimized cost, so savings can never be negative.
+      // Connected-hour rule: car is only chargeable when it's home (returnTime → leaveTime).
       const isConnectedHour = (hod: number) => {
         if (returnTime === leaveTime) return true; // edge: assume always home
         if (returnTime < leaveTime) return hod >= returnTime && hod < leaveTime;
         // wrap-around (e.g. 17 → 07): connected from returnTime..23 and 0..leaveTime-1
         return hod >= returnTime || hod < leaveTime;
       };
+
+      // Pick top N candidates by combined score, restricted to hours when the car is connected.
+      const ranked = [...scored]
+        .filter(h => isConnectedHour(h.hourOfDay))
+        .sort((a, b) => b.combined - a.combined);
+      const pickedCharge = new Set<number>(ranked.slice(0, TARGET_CHARGE_HOURS).map(r => r.idx));
+
+      // Bug 2 fix — TRULY DUMB BASELINE (computed AFTER optimized run below):
+      // Baseline charges the SAME total kWh as optimized, but picks the FIRST connected hours
+      // chronologically (no price-shopping). Same kWh + dumber hour selection → baseline cost
+      // is always ≥ optimized cost, so savings can never be negative.
       const baselineConnectedHours = [...scored]
         .filter(h => isConnectedHour(h.hourOfDay))
         .sort((a, b) => a.iso.localeCompare(b.iso));
