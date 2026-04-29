@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Slider } from "@/components/ui/slider";
+import { Progress } from "@/components/ui/progress";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CalendarIcon, Loader2, CheckCircle2 } from "lucide-react";
@@ -20,17 +21,43 @@ const modes = [
   { id: "full", label: "Full ZenOS", desc: "Price + grid tariff + battery health" },
 ];
 
+const PRICE_THRESHOLDS = [1.5, 2.0, 2.5];
+
+interface ScenarioParams {
+  starting_soc: number;
+  daily_km_multiplier: number;
+  price_threshold: number;
+  min_soc: number;
+  departure_offset_hours: number;
+}
+
 interface RunResult {
-  days_processed: number;
-  total_kwh_charged: number;
   total_saved_sek: number;
   price_savings_sek: number;
-  total_v2h_kwh: number;
   total_v2h_saving_sek: number;
+  total_kwh_charged: number;
+  total_v2h_kwh: number;
   peak_hours_avoided: number;
   avg_price_paid: number;
   v2x_capable: boolean;
   decisions_logged: number;
+  days_processed: number;
+}
+interface ScenarioRunOutcome {
+  scenario_number: number;
+  params: ScenarioParams;
+  result: RunResult | null;
+  error?: string;
+}
+
+function generateScenarioParams(n: number): ScenarioParams {
+  return {
+    starting_soc: Math.round(20 + Math.random() * 70),         // 20-90%
+    daily_km_multiplier: Number((0.7 + Math.random() * 0.6).toFixed(2)), // ±30%
+    departure_offset_hours: Math.round((Math.random() * 2 - 1) * 10) / 10, // ±1h
+    price_threshold: PRICE_THRESHOLDS[(n - 1) % PRICE_THRESHOLDS.length],
+    min_soc: Math.round(15 + Math.random() * 20),              // 15-35%
+  };
 }
 
 export default function SimulationRunner() {
@@ -40,14 +67,14 @@ export default function SimulationRunner() {
   const [households, setHouseholds] = useState<{ id: string; name: string }[]>([]);
   const [householdId, setHouseholdId] = useState<string>("");
   const [running, setRunning] = useState(false);
-  const [result, setResult] = useState<{ res: RunResult; householdName: string } | null>(null);
+  const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
+  const [outcomes, setOutcomes] = useState<ScenarioRunOutcome[]>([]);
   const [bounds, setBounds] = useState<{ min: Date; max: Date } | null>(null);
 
   useEffect(() => {
     supabase.from("household_profiles").select("id, name").order("created_at", { ascending: false })
       .then(({ data }) => setHouseholds(data ?? []));
 
-    // Fetch min/max available spot price dates
     (async () => {
       const [{ data: minRow }, { data: maxRow }] = await Promise.all([
         supabase.from("spot_prices").select("hour").order("hour", { ascending: true }).limit(1).maybeSingle(),
@@ -57,7 +84,6 @@ export default function SimulationRunner() {
       const min = new Date(minRow.hour);
       const max = new Date(maxRow.hour);
       setBounds({ min, max });
-      // Default: last 30 days within available data
       const from = subDays(max, 30);
       setRange({ from: from < min ? min : from, to: max });
     })();
@@ -65,40 +91,61 @@ export default function SimulationRunner() {
 
   const handleRun = async () => {
     if (!householdId || !range?.from || !range?.to) return;
+    const N = scenarios[0];
     setRunning(true);
-    setResult(null);
+    setOutcomes([]);
+    setProgress({ current: 0, total: N });
 
-    const { data: ins, error } = await supabase.from("simulation_runs").insert({
-      household_id: householdId,
-      period_from: format(range.from, "yyyy-MM-dd"),
-      period_to: format(range.to, "yyyy-MM-dd"),
-      optimization_mode: mode,
-      scenarios: scenarios[0],
-      status: "pending",
-    }).select("id").single();
+    const periodFrom = format(range.from, "yyyy-MM-dd");
+    const periodTo = format(range.to, "yyyy-MM-dd");
+    const collected: ScenarioRunOutcome[] = [];
 
-    if (error || !ins) {
-      setRunning(false);
-      toast.error(error?.message || "Failed to queue");
-      return;
+    for (let i = 1; i <= N; i++) {
+      setProgress({ current: i, total: N });
+      const params = generateScenarioParams(i);
+
+      const { data: ins, error } = await supabase.from("simulation_runs").insert({
+        household_id: householdId,
+        period_from: periodFrom,
+        period_to: periodTo,
+        optimization_mode: mode,
+        scenarios: N,
+        scenario_number: i,
+        scenario_params: params as unknown as Record<string, unknown>,
+        status: "pending",
+      }).select("id").single();
+
+      if (error || !ins) {
+        collected.push({ scenario_number: i, params, result: null, error: error?.message ?? "insert failed" });
+        continue;
+      }
+
+      const { data: fnData, error: fnErr } = await supabase.functions.invoke("run-simulation", {
+        body: { simulation_id: ins.id },
+      });
+
+      if (fnErr) {
+        collected.push({ scenario_number: i, params, result: null, error: fnErr.message });
+      } else {
+        collected.push({ scenario_number: i, params, result: fnData as RunResult });
+      }
+      setOutcomes([...collected]);
     }
-
-    const { data: fnData, error: fnErr } = await supabase.functions.invoke("run-simulation", {
-      body: { simulation_id: ins.id },
-    });
 
     setRunning(false);
-    if (fnErr) {
-      toast.error(`Simulering misslyckades: ${fnErr.message}`);
-      return;
-    }
-
-    const householdName = households.find(h => h.id === householdId)?.name ?? "hushållet";
-    toast.success(`Simulering klar! Sparade ${Number(fnData.total_saved_sek).toFixed(2)} SEK`);
-    setResult({ res: fnData as RunResult, householdName });
+    setProgress(null);
+    const ok = collected.filter(o => o.result);
+    if (ok.length === 0) toast.error("Alla scenarier misslyckades");
+    else toast.success(`${ok.length} scenarion klara`);
   };
 
   const canRun = householdId && range?.from && range?.to;
+  const successful = outcomes.filter(o => o.result) as Array<ScenarioRunOutcome & { result: RunResult }>;
+  const stats = successful.length > 0 ? {
+    best: Math.max(...successful.map(o => o.result.total_saved_sek)),
+    worst: Math.min(...successful.map(o => o.result.total_saved_sek)),
+    avg: successful.reduce((s, o) => s + o.result.total_saved_sek, 0) / successful.length,
+  } : null;
 
   return (
     <div className="space-y-8">
@@ -169,6 +216,9 @@ export default function SimulationRunner() {
           <div className="flex justify-between text-xs text-muted-foreground mt-2">
             <span>1</span><span>100</span>
           </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            Varje scenario varierar SoC, körsträcka, avgångstid, priströskel & min-SoC.
+          </p>
         </Section>
 
         <div className="space-y-2 pt-2">
@@ -177,35 +227,34 @@ export default function SimulationRunner() {
             disabled={!canRun || running}
             className="w-full rounded-full bg-primary hover:bg-primary/90 text-primary-foreground h-12 text-base gap-2"
           >
-            {running ? (<><Loader2 className="h-4 w-4 animate-spin" /> ZenOS optimerar...</>) : "Run simulation"}
+            {running ? (
+              <><Loader2 className="h-4 w-4 animate-spin" />
+                {progress ? `Kör scenario ${progress.current} av ${progress.total}...` : "ZenOS optimerar..."}
+              </>
+            ) : "Run simulation"}
           </Button>
+          {progress && (
+            <Progress value={(progress.current / progress.total) * 100} className="h-2" />
+          )}
           <p className="text-xs text-muted-foreground text-center">
             {!householdId ? "Select a household to enable" : "ZenOS analyserar timpriser och hittar billigaste timmarna"}
           </p>
         </div>
 
-        {result && (
+        {!running && successful.length > 0 && stats && (
           <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-5 space-y-3">
             <div className="flex items-center gap-2 text-emerald-600">
               <CheckCircle2 className="h-5 w-5" />
-              <span className="font-semibold text-sm">Simulering klar!</span>
+              <span className="font-semibold text-sm">{successful.length} scenarion klara</span>
             </div>
-            <p className="text-sm">
-              ZenOS sparade <strong className="text-emerald-600">{result.res.total_saved_sek.toFixed(2)} SEK</strong> över <strong>{result.res.days_processed} dagar</strong>.
-            </p>
-            <div className="rounded-xl bg-background/60 border border-border/40 p-3 text-xs space-y-1.5">
-              <div className="flex justify-between"><span className="text-muted-foreground">Prisoptimering</span><span className="font-semibold">{result.res.price_savings_sek.toFixed(2)} SEK</span></div>
-              {result.res.v2x_capable && (
-                <div className="flex justify-between"><span className="text-muted-foreground">V2H</span><span className="font-semibold text-sky-600">{result.res.total_v2h_saving_sek.toFixed(2)} SEK</span></div>
-              )}
-              <div className="flex justify-between"><span className="text-muted-foreground">Topptimmar undvikta</span><span className="font-semibold">{result.res.peak_hours_avoided} st</span></div>
+            <div className="grid grid-cols-3 gap-3 text-xs">
+              <Stat label="Bäst" value={`${stats.best.toFixed(2)} SEK`} tone="emerald" />
+              <Stat label="Sämst" value={`${stats.worst.toFixed(2)} SEK`} />
+              <Stat label="Snitt" value={`${stats.avg.toFixed(2)} SEK`} />
             </div>
-            <div className="grid grid-cols-2 gap-3 text-xs">
-              <Stat label="kWh laddat" value={`${result.res.total_kwh_charged.toFixed(1)}`} />
-              <Stat label="Snittpris" value={`${result.res.avg_price_paid.toFixed(3)} SEK/kWh`} />
-              {result.res.v2x_capable && <Stat label="V2H kWh" value={result.res.total_v2h_kwh.toFixed(1)} />}
-              <Stat label="Beslut loggade" value={result.res.decisions_logged.toString()} />
-            </div>
+            {outcomes.some(o => o.error) && (
+              <p className="text-xs text-destructive">{outcomes.filter(o => o.error).length} scenarion misslyckades</p>
+            )}
           </div>
         )}
       </Card>
@@ -222,11 +271,11 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, tone }: { label: string; value: string; tone?: "emerald" }) {
   return (
     <div className="rounded-lg bg-background/60 border border-border/40 px-3 py-2">
       <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
-      <div className="font-semibold text-sm mt-0.5">{value}</div>
+      <div className={cn("font-semibold text-sm mt-0.5", tone === "emerald" && "text-emerald-600")}>{value}</div>
     </div>
   );
 }
