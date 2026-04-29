@@ -433,6 +433,52 @@ function StatusPill({ status }: { status: string | null }) {
   return <span className={cn("inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold capitalize", tone)}>{status ?? "—"}</span>;
 }
 
+function ScenarioGroups({ runs }: { runs: SimRun[] }) {
+  const groups = useMemo(() => {
+    const map = new Map<string, SimRun[]>();
+    for (const r of runs) {
+      if ((r.scenarios ?? 1) <= 1) continue;
+      const key = `${r.period_from}__${r.period_to}__${r.optimization_mode}__${r.started_at?.slice(0, 10) ?? ""}`;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(r);
+    }
+    return Array.from(map.entries())
+      .map(([key, items]) => ({ key, items }))
+      .filter(g => g.items.length > 1);
+  }, [runs]);
+
+  if (groups.length === 0) return null;
+
+  return (
+    <Card className="rounded-2xl border-border/60 shadow-card p-6 space-y-4">
+      <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Scenariegrupper</h3>
+      <div className="space-y-2">
+        {groups.map(g => {
+          const completed = g.items.filter(i => i.status === "completed");
+          const vals = completed.map(i => Number(i.total_saved_sek ?? 0));
+          const best = vals.length ? Math.max(...vals) : 0;
+          const worst = vals.length ? Math.min(...vals) : 0;
+          const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+          const sample = g.items[0];
+          return (
+            <div key={g.key} className="rounded-xl border border-border/40 bg-background/60 px-4 py-3">
+              <div className="text-sm">
+                <span className="font-semibold">{completed.length} / {g.items.length} scenarion</span>
+                <span className="text-muted-foreground"> · {sample.period_from} → {sample.period_to} · <span className="capitalize">{sample.optimization_mode}</span></span>
+              </div>
+              <div className="text-xs mt-1 flex flex-wrap gap-x-4 gap-y-1">
+                <span className="text-emerald-600">Bäst: {best.toFixed(2)} SEK</span>
+                <span className="text-destructive">Sämst: {worst.toFixed(2)} SEK</span>
+                <span>Snitt: {avg.toFixed(2)} SEK</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
 /* ======================== utils ======================== */
 function sum(xs: number[]) { return xs.reduce((a, b) => a + b, 0); }
 function csvCell(v: any) {
