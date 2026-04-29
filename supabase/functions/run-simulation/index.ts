@@ -25,6 +25,15 @@ const DEFAULT_GRID_TARIFF = 0.30; // fallback SEK/kWh when no tariff configured
 const DEFAULT_PEAK_TARIFF = 55;   // SEK/kW/month fallback
 const DC_EFFICIENCY = 0.95;       // both directions
 
+// V2H aktiveringströsklar per prisområde (SEK/kWh)
+// SE1/SE2 har lägre snittpriser → lägre tröskel så V2H faktiskt används
+const V2H_THRESHOLDS: Record<string, number> = {
+  SE1: 0.45,
+  SE2: 0.60,
+  SE3: 0.80,
+  SE4: 0.70,
+};
+
 // Default consumption weights (pendlare style) if profile missing
 const DEFAULT_WEIGHTS = [
   0.3,0.3,0.3,0.3,0.3,0.3,
@@ -185,6 +194,8 @@ Deno.serve(async (req) => {
     // 3c. Peak tariff (SEK/kW/month) for this grid company
     let peakTariffPerKw = DEFAULT_PEAK_TARIFF;
     let hasPeakTariff = true;
+    let peakTariffMissing = false;
+    const warnings: Record<string, string> = {};
     if (hh.grid_company) {
       const { data: gcs } = await supabase
         .from("grid_company_settings")
@@ -193,7 +204,14 @@ Deno.serve(async (req) => {
       if (gcs) {
         peakTariffPerKw = Number(gcs.peak_tariff_sek_per_kw) || DEFAULT_PEAK_TARIFF;
         hasPeakTariff = gcs.has_peak_tariff !== false;
+      } else {
+        peakTariffMissing = true;
+        warnings.grid_tariff_warning = `${hh.grid_company} ej funnen i grid_company_settings — standardvärde ${DEFAULT_PEAK_TARIFF} SEK/kW används`;
+        console.warn(`[run-simulation] grid_company "${hh.grid_company}" not found, using default peak tariff`);
       }
+    } else {
+      peakTariffMissing = true;
+      warnings.grid_tariff_warning = "Inget elnätsbolag valt — standardvärde 55 SEK/kW används";
     }
 
     const byDay = new Map<string, DayHour[]>();
@@ -307,12 +325,16 @@ Deno.serve(async (req) => {
         const v2hSocFloor = mode === "smart_v2x" ? SOC_V2H_FLOOR : Math.max(minSoc, 35);
 
         // Smart V2H decision: scale power by spot price
+        // Tröskel beror på prisområde (SE1 har lägre snittpriser än SE3/SE4)
+        const v2hMinPrice = V2H_THRESHOLDS[priceArea] ?? V2H_THRESHOLDS.SE3;
         const smartV2hKw = (() => {
-          if (h.price > 2.0) return v2hMaxKw;          // up to 11
-          if (h.price > 1.5) return Math.min(9, v2hMaxKw);
-          if (h.price > 1.0) return Math.min(7, v2hMaxKw);
-          if (h.price > 0.8) return Math.min(5, v2hMaxKw);
-          return 0;
+          if (h.price <= v2hMinPrice) return 0;
+          // Skala effekt linjärt från låg → hög utöver tröskeln
+          const over = h.price - v2hMinPrice;
+          if (over > 1.2) return v2hMaxKw;                    // full uteffekt
+          if (over > 0.7) return Math.min(9, v2hMaxKw);
+          if (over > 0.3) return Math.min(7, v2hMaxKw);
+          return Math.min(5, v2hMaxKw);
         })();
 
         if (!connected) {
@@ -383,7 +405,9 @@ Deno.serve(async (req) => {
               const priceSaving = Math.max(0, (priceThreshold - h.price) * effectiveChargeKw);
               if (extraMonthlyCost > priceSaving) {
                 decision = "pause";
-                reason = "peak_tariff_avoided";
+                reason = peakTariffMissing
+                  ? "peak_tariff_avoided | Effekttariff: standardvärde använt (bolag ej registrerat)"
+                  : "peak_tariff_avoided";
                 peaksAvoidedCount++;
                 peakDemandSavingSek += extraMonthlyCost - priceSaving;
                 pushEvent({
@@ -623,6 +647,7 @@ Deno.serve(async (req) => {
       total_cost_with_tariff: round2(totalCostWithTariff),
       total_saved_including_tariff: round2(savingsIncludingTariff),
       total_events: eventsBatch.length,
+      warnings: Object.keys(warnings).length > 0 ? warnings : null,
       ended_at: new Date().toISOString(),
     }).eq("id", simulation_id);
 
