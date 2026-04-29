@@ -96,8 +96,11 @@ async function runOneSimulation(
   return { scenario_number: scenarioNumber, params, result: fnData as RunResult };
 }
 
-export default function SimulationRunner() {
-  const [pageMode, setPageMode] = useState<"single" | "bulk">("single");
+export default function SimulationRunner({
+  initialMode = "single",
+  preselectedHouseholdId,
+}: { initialMode?: "single" | "bulk"; preselectedHouseholdId?: string } = {}) {
+  const [pageMode, setPageMode] = useState<"single" | "bulk">(initialMode);
   const [households, setHouseholds] = useState<Household[]>([]);
   const [evMap, setEvMap] = useState<Record<string, { v2x_capable: boolean; brand: string; model: string }>>({});
   const [bounds, setBounds] = useState<{ min: Date; max: Date } | null>(null);
