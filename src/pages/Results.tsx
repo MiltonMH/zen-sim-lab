@@ -1,15 +1,20 @@
 import { useEffect, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Download } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import SimulationDetail from "./SimulationDetail";
 
 interface SimRun {
   id: string; household_id: string; period_from: string; period_to: string;
   optimization_mode: string; total_saved_sek: number | null; avg_price_paid: number | null;
   scenarios: number | null; status: string | null;
+  total_v2h_saving_sek?: number | null; peak_hours_avoided?: number | null; price_savings_sek?: number | null;
 }
 interface OptLog {
   id: string; household_id: string; logged_at: string; decision: string;
@@ -34,6 +39,7 @@ export default function Results() {
   const [loadingL, setLoadingL] = useState(true);
   const [errR, setErrR] = useState<string | null>(null);
   const [errL, setErrL] = useState<string | null>(null);
+  const [selectedSim, setSelectedSim] = useState<string | null>(null);
 
   useEffect(() => {
     supabase.from("household_profiles").select("id, name").then(({ data }) => {
@@ -53,11 +59,33 @@ export default function Results() {
       });
   }, []);
 
+  const exportAll = async () => {
+    const { data: allLogs } = await supabase.from("optimization_logs").select("*").order("logged_at", { ascending: true });
+    const { data: hh } = await supabase.from("household_profiles").select("*");
+    const payload = { exported_at: new Date().toISOString(), simulations: runs, households: hh ?? [], decisions: allLogs ?? [] };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `zenios-all-simulations-${format(new Date(), "yyyy-MM-dd")}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast.success("Alla simuleringar exporterade");
+  };
+
+  if (selectedSim) {
+    return <SimulationDetail simulationId={selectedSim} onBack={() => setSelectedSim(null)} />;
+  }
+
   return (
     <div className="space-y-8">
-      <header>
-        <h1 className="text-3xl font-semibold tracking-tight">Results & Logs</h1>
-        <p className="text-muted-foreground mt-1.5 text-sm">Review simulation outputs and per-decision logs.</p>
+      <header className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight">Results & Logs</h1>
+          <p className="text-muted-foreground mt-1.5 text-sm">Review simulation outputs and per-decision logs.</p>
+        </div>
+        <Button variant="outline" onClick={exportAll} className="rounded-full gap-2">
+          <Download className="h-4 w-4" /> Exportera alla
+        </Button>
       </header>
 
       <Tabs defaultValue="results">
@@ -86,7 +114,7 @@ export default function Results() {
                 ) : runs.map(r => {
                   const saved = r.total_saved_sek != null ? Number(r.total_saved_sek) : null;
                   return (
-                    <TableRow key={r.id}>
+                    <TableRow key={r.id} onClick={() => setSelectedSim(r.id)} className="cursor-pointer hover:bg-muted/40 transition-colors">
                       <TableCell className="font-mono text-xs">{r.id.slice(0, 8)}</TableCell>
                       <TableCell className="text-sm">{householdMap[r.household_id] ?? "—"}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">{r.period_from} → {r.period_to}</TableCell>
