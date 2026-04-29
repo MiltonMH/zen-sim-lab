@@ -530,7 +530,7 @@ function TariffsTab() {
   );
 }
 
-export default function DataExplorer() {
+export default function DataExplorer({ initialTab = "spot" }: { initialTab?: "spot" | "tariffs" } = {}) {
   return (
     <div className="space-y-8">
       <header>
@@ -538,7 +538,7 @@ export default function DataExplorer() {
         <p className="text-muted-foreground mt-1.5 text-sm">Drill down into spot prices and grid tariffs.</p>
       </header>
 
-      <Tabs defaultValue="spot">
+      <Tabs defaultValue={initialTab}>
         <TabsList className="rounded-full bg-muted p-1">
           <TabsTrigger value="spot" className="rounded-full px-6">Spot prices</TabsTrigger>
           <TabsTrigger value="tariffs" className="rounded-full px-6">Grid tariffs</TabsTrigger>
