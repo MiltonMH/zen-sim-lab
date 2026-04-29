@@ -325,12 +325,16 @@ Deno.serve(async (req) => {
         const v2hSocFloor = mode === "smart_v2x" ? SOC_V2H_FLOOR : Math.max(minSoc, 35);
 
         // Smart V2H decision: scale power by spot price
+        // Tröskel beror på prisområde (SE1 har lägre snittpriser än SE3/SE4)
+        const v2hMinPrice = V2H_THRESHOLDS[priceArea] ?? V2H_THRESHOLDS.SE3;
         const smartV2hKw = (() => {
-          if (h.price > 2.0) return v2hMaxKw;          // up to 11
-          if (h.price > 1.5) return Math.min(9, v2hMaxKw);
-          if (h.price > 1.0) return Math.min(7, v2hMaxKw);
-          if (h.price > 0.8) return Math.min(5, v2hMaxKw);
-          return 0;
+          if (h.price <= v2hMinPrice) return 0;
+          // Skala effekt linjärt från låg → hög utöver tröskeln
+          const over = h.price - v2hMinPrice;
+          if (over > 1.2) return v2hMaxKw;                    // full uteffekt
+          if (over > 0.7) return Math.min(9, v2hMaxKw);
+          if (over > 0.3) return Math.min(7, v2hMaxKw);
+          return Math.min(5, v2hMaxKw);
         })();
 
         if (!connected) {
