@@ -202,6 +202,15 @@ function SingleMode({ households, evMap, bounds, preselectedHouseholdId }: {
     else toast.success(`${ok.length} scenarion klara`);
   };
 
+  const selectedHousehold = households.find(h => h.id === householdId);
+  const selectedEv = selectedHousehold?.ev_model_id ? evMap[selectedHousehold.ev_model_id] : undefined;
+  const hasCcs2 = selectedEv ? selectedEv.ccs2_port !== false : true;
+
+  // Auto-fall-back if user picks a non-CCS2 car while v2x mode is active
+  useEffect(() => {
+    if (!hasCcs2 && mode === "smart_v2x") setMode("smart_charge");
+  }, [hasCcs2, mode]);
+
   const canRun = householdId && range?.from && range?.to;
   const successful = outcomes.filter(o => o.result) as Array<ScenarioRunOutcome & { result: RunResult }>;
   const stats = successful.length > 0 ? {
@@ -227,19 +236,32 @@ function SingleMode({ households, evMap, bounds, preselectedHouseholdId }: {
 
       <Section title="Optimization mode">
         <RadioGroup value={mode} onValueChange={setMode} className="space-y-2">
-          {modes.map(m => (
-            <label key={m.id} htmlFor={m.id}
-              className={cn(
-                "flex items-start gap-3 rounded-xl border p-4 cursor-pointer transition-colors",
-                mode === m.id ? "border-primary bg-primary-muted/40" : "border-border hover:bg-muted/40"
-              )}>
-              <RadioGroupItem id={m.id} value={m.id} className="mt-0.5" />
-              <div>
-                <div className="text-sm font-medium">{m.label}</div>
-                <div className="text-xs text-muted-foreground mt-0.5">{m.desc}</div>
-              </div>
-            </label>
-          ))}
+          {modes.map(m => {
+            const disabled = m.requiresCcs2 && !hasCcs2;
+            return (
+              <label
+                key={m.id}
+                htmlFor={m.id}
+                title={disabled ? "Kräver V2X-kapabel bil. Byt till Hyundai Ioniq 5, Kia EV6/EV9, Nissan Leaf eller annan V2X-bil." : m.desc}
+                className={cn(
+                  "flex items-start gap-3 rounded-xl border p-4 transition-colors",
+                  disabled ? "opacity-50 cursor-not-allowed border-border" :
+                    mode === m.id ? "border-primary bg-primary-muted/40 cursor-pointer" : "border-border hover:bg-muted/40 cursor-pointer"
+                )}
+              >
+                <RadioGroupItem id={m.id} value={m.id} className="mt-0.5" disabled={disabled} />
+                <div>
+                  <div className="text-sm font-medium">{m.label}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">{m.desc}</div>
+                  {disabled && (
+                    <div className="text-[11px] text-amber-600 mt-1">
+                      Kräver V2X-kapabel bil med CCS2-port.
+                    </div>
+                  )}
+                </div>
+              </label>
+            );
+          })}
         </RadioGroup>
       </Section>
 
