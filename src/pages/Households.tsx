@@ -235,7 +235,7 @@ export default function Households() {
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-0 z-50 bg-popover" align="start">
                   <Command
                     filter={(value, search) => {
                       // value is the lowercased text we set on CommandItem
@@ -243,7 +243,7 @@ export default function Households() {
                     }}
                   >
                     <CommandInput placeholder="Search brand or model..." />
-                    <CommandList>
+                    <CommandList className="max-h-[300px] overflow-y-auto overscroll-contain">
                       <CommandEmpty>No EV found.</CommandEmpty>
                       <CommandGroup>
                         {evModels.map(ev => {
