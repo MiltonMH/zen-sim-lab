@@ -457,6 +457,46 @@ export default function Hushall() {
                   </SelectContent>
                 </Select>
               </div>
+
+              <div className="col-span-2 border-t pt-4 mt-2">
+                <h4 className="font-medium mb-3">Klassificering</h4>
+              </div>
+              <div>
+                <Label>Typ</Label>
+                <Select
+                  value={(editing.household_type as string) ?? "training"}
+                  onValueChange={v => set("household_type", v)}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="seed">Referens (seed)</SelectItem>
+                    <SelectItem value="training">Träningsdata</SelectItem>
+                    <SelectItem value="real">Riktig kund</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Datakvalitet</Label>
+                <Select
+                  value={editing.data_quality ?? "verified"}
+                  onValueChange={v => set("data_quality", v)}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="verified">Verifierad</SelectItem>
+                    <SelectItem value="generated">Genererad</SelectItem>
+                    <SelectItem value="needs_review">Behöver granskas</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="col-span-2">
+                <Label>Anteckningar</Label>
+                <Input
+                  value={editing.notes ?? ""}
+                  onChange={e => set("notes", e.target.value)}
+                  placeholder="Fri text om hushållet (valfritt)"
+                />
+              </div>
             </div>
           )}
 
