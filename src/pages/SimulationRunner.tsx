@@ -162,12 +162,19 @@ export default function SimulationRunner() {
               <span className="font-semibold text-sm">Simulering klar!</span>
             </div>
             <p className="text-sm">
-              Sparade <strong className="text-emerald-600">{result.res.total_saved_sek.toFixed(2)} SEK</strong> över <strong>{result.res.days_processed} dagar</strong>.
+              ZenOS sparade <strong className="text-emerald-600">{result.res.total_saved_sek.toFixed(2)} SEK</strong> över <strong>{result.res.days_processed} dagar</strong>.
             </p>
+            <div className="rounded-xl bg-background/60 border border-border/40 p-3 text-xs space-y-1.5">
+              <div className="flex justify-between"><span className="text-muted-foreground">Prisoptimering</span><span className="font-semibold">{result.res.price_savings_sek.toFixed(2)} SEK</span></div>
+              {result.res.v2x_capable && (
+                <div className="flex justify-between"><span className="text-muted-foreground">V2H</span><span className="font-semibold text-sky-600">{result.res.total_v2h_saving_sek.toFixed(2)} SEK</span></div>
+              )}
+              <div className="flex justify-between"><span className="text-muted-foreground">Topptimmar undvikta</span><span className="font-semibold">{result.res.peak_hours_avoided} st</span></div>
+            </div>
             <div className="grid grid-cols-2 gap-3 text-xs">
               <Stat label="kWh laddat" value={`${result.res.total_kwh_charged.toFixed(1)}`} />
               <Stat label="Snittpris" value={`${result.res.avg_price_paid.toFixed(3)} SEK/kWh`} />
-              <Stat label="Baseline-pris" value={`${result.res.baseline_avg_price.toFixed(3)} SEK/kWh`} />
+              {result.res.v2x_capable && <Stat label="V2H kWh" value={result.res.total_v2h_kwh.toFixed(1)} />}
               <Stat label="Beslut loggade" value={result.res.decisions_logged.toString()} />
             </div>
           </div>
