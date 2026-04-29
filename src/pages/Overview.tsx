@@ -163,7 +163,16 @@ export default function Overview() {
     },
     {
       label: "Hushåll",
-      sub: "Profiler i lab",
+      sub: (() => {
+        const seed = households.filter(h => (h.household_type ?? "training") === "seed").length;
+        const training = households.filter(h => (h.household_type ?? "training") === "training").length;
+        const real = households.filter(h => h.household_type === "real").length;
+        const parts: string[] = [];
+        if (seed) parts.push(`${seed} referens`);
+        if (training) parts.push(`${training} träning`);
+        if (real) parts.push(`${real} kund`);
+        return parts.length ? parts.join(" + ") : "Profiler i lab";
+      })(),
       value: counts.household_profiles.toLocaleString("sv-SE"),
       icon: Building2,
       tone: "text-foreground",
