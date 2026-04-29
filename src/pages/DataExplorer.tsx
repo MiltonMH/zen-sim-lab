@@ -436,7 +436,7 @@ function DayDetail({ year, month, day }: { year: number; month: number; day: num
   );
 }
 
-function SpotPricesExplorer() {
+export function SpotPricesExplorer() {
   const [sel, setSel] = useState<Selection>({ year: null, month: null, day: null });
 
   return (
