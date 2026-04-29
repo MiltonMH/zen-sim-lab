@@ -9,10 +9,11 @@ import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import {
-  ComposedChart, Line, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Legend,
+  ComposedChart, Line, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Legend, ReferenceLine,
 } from "recharts";
 
 interface Props { simulationId: string; onBack: () => void }
+const PAGE_SIZE = 50;
 
 const decisionStyles: Record<string, { row: string; pill: string; label: string }> = {
   charge:           { row: "bg-emerald-500/5 hover:bg-emerald-500/10", pill: "bg-emerald-500/15 text-emerald-700", label: "Charge" },
