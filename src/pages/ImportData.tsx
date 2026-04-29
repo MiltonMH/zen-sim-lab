@@ -134,7 +134,7 @@ function GridTariffsTab() {
   );
 }
 
-export default function ImportData() {
+export default function ImportData({ initialTab = "spot" }: { initialTab?: "spot" | "tariffs" } = {}) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState({ done: 0, total: 0, rows: 0 });
@@ -228,7 +228,7 @@ export default function ImportData() {
         <p className="text-muted-foreground mt-1.5 text-sm">Pull market data into the lab.</p>
       </header>
 
-      <Tabs defaultValue="spot" className="max-w-[860px] mx-auto">
+      <Tabs defaultValue={initialTab} className="max-w-[860px] mx-auto">
         <TabsList className="rounded-full">
           <TabsTrigger value="spot" className="rounded-full">Spot prices</TabsTrigger>
           <TabsTrigger value="tariffs" className="rounded-full">Grid tariffs</TabsTrigger>
