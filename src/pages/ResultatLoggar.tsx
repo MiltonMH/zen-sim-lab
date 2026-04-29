@@ -99,8 +99,8 @@ function AllSimsTab({
       const householdIds = Array.from(new Set(filtered.map((s) => s.household_id).filter(Boolean))) as string[];
 
       // Chunk helper for IN clauses (Postgres practical limit)
-      const chunk = <T,>(arr: T[], size = 100): T[][] => {
-        const out: T[][] = [];
+      const chunk = (arr: string[], size = 100): string[][] => {
+        const out: string[][] = [];
         for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
         return out;
       };
@@ -109,7 +109,7 @@ function AllSimsTab({
         const rows: any[] = [];
         for (const ch of chunk(ids)) {
           const { data } = await supabase.from(table).select("*").in(column, ch);
-          if (data) rows.push(...data);
+          if (data) rows.push(...(data as any[]));
         }
         return rows;
       };
