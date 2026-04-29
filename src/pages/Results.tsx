@@ -4,44 +4,21 @@ import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
+import { cn } from "@/lib/utils";
 
-function StateRow({ count, message }: { count: number; message: string }) {
-  return (
-    <TableRow>
-      <TableCell colSpan={count} className="h-32 text-center text-sm text-muted-foreground">{message}</TableCell>
-    </TableRow>
-  );
+interface SimRun {
+  id: string; household_id: string; period_from: string; period_to: string;
+  optimization_mode: string; total_saved_sek: number | null; avg_price_paid: number | null;
+  scenarios: number | null; status: string | null;
 }
-
-function DataTable({ headers, rows, loading, error, empty }: {
-  headers: string[]; rows: React.ReactNode[][]; loading: boolean; error: string | null; empty: string;
-}) {
-  return (
-    <Card className="rounded-2xl border-border/60 shadow-card overflow-hidden">
-      <Table>
-        <TableHeader>
-          <TableRow className="bg-muted/40">
-            {headers.map(h => <TableHead key={h} className="text-xs uppercase tracking-wider font-medium">{h}</TableHead>)}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {loading ? <StateRow count={headers.length} message="Loading..." />
-            : error ? <StateRow count={headers.length} message={`Error: ${error}`} />
-            : rows.length === 0 ? <StateRow count={headers.length} message={empty} />
-            : rows.map((cells, i) => (
-              <TableRow key={i}>
-                {cells.map((c, j) => <TableCell key={j} className="text-sm">{c}</TableCell>)}
-              </TableRow>
-            ))}
-        </TableBody>
-      </Table>
-    </Card>
-  );
+interface OptLog {
+  id: string; household_id: string; logged_at: string; decision: string;
+  spot_price_sek: number | null; soc_pct: number | null; reason: string | null;
 }
 
 export default function Results() {
-  const [runs, setRuns] = useState<any[]>([]);
-  const [logs, setLogs] = useState<any[]>([]);
+  const [runs, setRuns] = useState<SimRun[]>([]);
+  const [logs, setLogs] = useState<OptLog[]>([]);
   const [householdMap, setHouseholdMap] = useState<Record<string, string>>({});
   const [loadingR, setLoadingR] = useState(true);
   const [loadingL, setLoadingL] = useState(true);
@@ -51,39 +28,20 @@ export default function Results() {
   useEffect(() => {
     supabase.from("household_profiles").select("id, name").then(({ data }) => {
       const map: Record<string, string> = {};
-      (data ?? []).forEach((h: any) => { map[h.id] = h.name; });
+      (data ?? []).forEach((h: { id: string; name: string }) => { map[h.id] = h.name; });
       setHouseholdMap(map);
     });
     supabase.from("simulation_runs").select("*").order("started_at", { ascending: false }).limit(100)
       .then(({ data, error }) => {
-        if (error) setErrR(error.message); else setRuns(data ?? []);
+        if (error) setErrR(error.message); else setRuns((data ?? []) as SimRun[]);
         setLoadingR(false);
       });
-    supabase.from("optimization_logs").select("*").order("logged_at", { ascending: false }).limit(100)
+    supabase.from("optimization_logs").select("*").order("logged_at", { ascending: false }).limit(500)
       .then(({ data, error }) => {
-        if (error) setErrL(error.message); else setLogs(data ?? []);
+        if (error) setErrL(error.message); else setLogs((data ?? []) as OptLog[]);
         setLoadingL(false);
       });
   }, []);
-
-  const runRows = runs.map(r => [
-    <span className="font-mono text-xs">{r.id.slice(0, 8)}</span>,
-    householdMap[r.household_id] ?? "—",
-    `${r.period_from} → ${r.period_to}`,
-    <span className="capitalize">{r.optimization_mode}</span>,
-    r.total_saved_sek != null ? Number(r.total_saved_sek).toFixed(2) : "—",
-    r.avg_price_paid != null ? Number(r.avg_price_paid).toFixed(4) : "—",
-    r.scenarios ?? "—",
-  ]);
-
-  const logRows = logs.map(l => [
-    format(new Date(l.logged_at), "yyyy-MM-dd HH:mm"),
-    householdMap[l.household_id] ?? "—",
-    <span className="capitalize">{l.decision}</span>,
-    l.spot_price_sek != null ? Number(l.spot_price_sek).toFixed(4) : "—",
-    l.soc_pct != null ? `${Number(l.soc_pct).toFixed(0)}%` : "—",
-    l.reason ?? "—",
-  ]);
 
   return (
     <div className="space-y-8">
@@ -99,21 +57,96 @@ export default function Results() {
         </TabsList>
 
         <TabsContent value="results" className="mt-6">
-          <DataTable
-            headers={["Simulation ID", "Household", "Period", "Mode", "Total saved (SEK)", "Avg price paid", "Events"]}
-            rows={runRows} loading={loadingR} error={errR}
-            empty="No results yet — run a simulation to see data here"
-          />
+          <Card className="rounded-2xl border-border/60 shadow-card overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/40">
+                  {["ID","Household","Period","Mode","Total saved (SEK)","Avg price","Status"].map(h => (
+                    <TableHead key={h} className="text-xs uppercase tracking-wider font-medium">{h}</TableHead>
+                  ))}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loadingR ? (
+                  <TableRow><TableCell colSpan={7} className="h-32 text-center text-sm text-muted-foreground">Loading...</TableCell></TableRow>
+                ) : errR ? (
+                  <TableRow><TableCell colSpan={7} className="h-32 text-center text-sm text-destructive">Error: {errR}</TableCell></TableRow>
+                ) : runs.length === 0 ? (
+                  <TableRow><TableCell colSpan={7} className="h-32 text-center text-sm text-muted-foreground">No results yet — run a simulation</TableCell></TableRow>
+                ) : runs.map(r => {
+                  const saved = r.total_saved_sek != null ? Number(r.total_saved_sek) : null;
+                  return (
+                    <TableRow key={r.id}>
+                      <TableCell className="font-mono text-xs">{r.id.slice(0, 8)}</TableCell>
+                      <TableCell className="text-sm">{householdMap[r.household_id] ?? "—"}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{r.period_from} → {r.period_to}</TableCell>
+                      <TableCell className="text-sm capitalize">{r.optimization_mode}</TableCell>
+                      <TableCell className={cn("text-sm font-semibold", saved != null && saved > 0 && "text-emerald-600")}>
+                        {saved != null ? saved.toFixed(2) : "—"}
+                      </TableCell>
+                      <TableCell className="text-sm">{r.avg_price_paid != null ? Number(r.avg_price_paid).toFixed(4) : "—"}</TableCell>
+                      <TableCell><StatusPill status={r.status} /></TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </Card>
         </TabsContent>
 
         <TabsContent value="logs" className="mt-6">
-          <DataTable
-            headers={["Timestamp", "Household", "Decision", "Spot price", "SoC %", "Reason"]}
-            rows={logRows} loading={loadingL} error={errL}
-            empty="No optimization logs yet"
-          />
+          <Card className="rounded-2xl border-border/60 shadow-card overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/40">
+                  {["Timestamp","Household","Decision","Spot price","SoC %","Reason"].map(h => (
+                    <TableHead key={h} className="text-xs uppercase tracking-wider font-medium">{h}</TableHead>
+                  ))}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loadingL ? (
+                  <TableRow><TableCell colSpan={6} className="h-32 text-center text-sm text-muted-foreground">Loading...</TableCell></TableRow>
+                ) : errL ? (
+                  <TableRow><TableCell colSpan={6} className="h-32 text-center text-sm text-destructive">Error: {errL}</TableCell></TableRow>
+                ) : logs.length === 0 ? (
+                  <TableRow><TableCell colSpan={6} className="h-32 text-center text-sm text-muted-foreground">No optimization logs yet</TableCell></TableRow>
+                ) : logs.map(l => {
+                  const isCharge = l.decision === "charge";
+                  return (
+                    <TableRow
+                      key={l.id}
+                      className={cn(isCharge ? "bg-emerald-500/5 hover:bg-emerald-500/10" : "bg-muted/30 hover:bg-muted/50")}
+                    >
+                      <TableCell className="text-sm">{format(new Date(l.logged_at), "yyyy-MM-dd HH:mm")}</TableCell>
+                      <TableCell className="text-sm">{householdMap[l.household_id] ?? "—"}</TableCell>
+                      <TableCell>
+                        <span className={cn(
+                          "inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold capitalize",
+                          isCharge ? "bg-emerald-500/15 text-emerald-700" : "bg-muted-foreground/10 text-muted-foreground"
+                        )}>
+                          {l.decision}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-sm font-mono">{l.spot_price_sek != null ? Number(l.spot_price_sek).toFixed(4) : "—"}</TableCell>
+                      <TableCell className="text-sm">{l.soc_pct != null ? `${Number(l.soc_pct).toFixed(0)}%` : "—"}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{l.reason ?? "—"}</TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>
   );
+}
+
+function StatusPill({ status }: { status: string | null }) {
+  const tone = status === "completed" ? "bg-emerald-500/15 text-emerald-700"
+    : status === "failed" ? "bg-destructive/15 text-destructive"
+    : status === "running" ? "bg-amber-500/15 text-amber-700"
+    : "bg-muted text-muted-foreground";
+  return <span className={cn("inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold capitalize", tone)}>{status ?? "—"}</span>;
 }

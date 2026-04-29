@@ -7,7 +7,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Slider } from "@/components/ui/slider";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { CalendarIcon } from "lucide-react";
+import { CalendarIcon, Loader2, CheckCircle2 } from "lucide-react";
 import { format, subDays } from "date-fns";
 import type { DateRange } from "react-day-picker";
 import { cn } from "@/lib/utils";
@@ -16,17 +16,27 @@ import { toast } from "sonner";
 
 const modes = [
   { id: "none", label: "No optimization", desc: "Baseline — charge whenever connected" },
-  { id: "price", label: "Price optimization", desc: "Charge when spot price is lowest" },
+  { id: "price", label: "Price optimization", desc: "Charge during the cheapest hours" },
   { id: "full", label: "Full ZenOS", desc: "Price + grid tariff + battery health" },
 ];
 
+interface RunResult {
+  days_processed: number;
+  total_kwh_charged: number;
+  total_saved_sek: number;
+  avg_price_paid: number;
+  baseline_avg_price: number;
+  decisions_logged: number;
+}
+
 export default function SimulationRunner() {
-  const [mode, setMode] = useState("none");
+  const [mode, setMode] = useState("price");
   const [scenarios, setScenarios] = useState([10]);
   const [range, setRange] = useState<DateRange | undefined>({ from: subDays(new Date(), 30), to: new Date() });
   const [households, setHouseholds] = useState<{ id: string; name: string }[]>([]);
   const [householdId, setHouseholdId] = useState<string>("");
   const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<{ res: RunResult; householdName: string } | null>(null);
 
   useEffect(() => {
     supabase.from("household_profiles").select("id, name").order("created_at", { ascending: false })
@@ -36,17 +46,36 @@ export default function SimulationRunner() {
   const handleRun = async () => {
     if (!householdId || !range?.from || !range?.to) return;
     setRunning(true);
-    const { error } = await supabase.from("simulation_runs").insert({
+    setResult(null);
+
+    const { data: ins, error } = await supabase.from("simulation_runs").insert({
       household_id: householdId,
       period_from: format(range.from, "yyyy-MM-dd"),
       period_to: format(range.to, "yyyy-MM-dd"),
       optimization_mode: mode,
       scenarios: scenarios[0],
       status: "pending",
+    }).select("id").single();
+
+    if (error || !ins) {
+      setRunning(false);
+      toast.error(error?.message || "Failed to queue");
+      return;
+    }
+
+    const { data: fnData, error: fnErr } = await supabase.functions.invoke("run-simulation", {
+      body: { simulation_id: ins.id },
     });
+
     setRunning(false);
-    if (error) { toast.error(error.message); return; }
-    toast.success("Simulation queued");
+    if (fnErr) {
+      toast.error(`Simulering misslyckades: ${fnErr.message}`);
+      return;
+    }
+
+    const householdName = households.find(h => h.id === householdId)?.name ?? "hushållet";
+    toast.success(`Simulering klar! Sparade ${Number(fnData.total_saved_sek).toFixed(2)} SEK`);
+    setResult({ res: fnData as RunResult, householdName });
   };
 
   const canRun = householdId && range?.from && range?.to;
@@ -113,14 +142,32 @@ export default function SimulationRunner() {
           <Button
             onClick={handleRun}
             disabled={!canRun || running}
-            className="w-full rounded-full bg-primary hover:bg-primary/90 text-primary-foreground h-12 text-base"
+            className="w-full rounded-full bg-primary hover:bg-primary/90 text-primary-foreground h-12 text-base gap-2"
           >
-            {running ? "Queuing..." : "Run simulation"}
+            {running ? (<><Loader2 className="h-4 w-4 animate-spin" /> ZenOS optimerar...</>) : "Run simulation"}
           </Button>
           <p className="text-xs text-muted-foreground text-center">
-            {!householdId ? "Select a household to enable" : "Estimated time: ~2 seconds per scenario"}
+            {!householdId ? "Select a household to enable" : "ZenOS analyserar timpriser och hittar billigaste timmarna"}
           </p>
         </div>
+
+        {result && (
+          <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-5 space-y-3">
+            <div className="flex items-center gap-2 text-emerald-600">
+              <CheckCircle2 className="h-5 w-5" />
+              <span className="font-semibold text-sm">Simulering klar!</span>
+            </div>
+            <p className="text-sm">
+              Sparade <strong className="text-emerald-600">{result.res.total_saved_sek.toFixed(2)} SEK</strong> över <strong>{result.res.days_processed} dagar</strong>.
+            </p>
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <Stat label="kWh laddat" value={`${result.res.total_kwh_charged.toFixed(1)}`} />
+              <Stat label="Snittpris" value={`${result.res.avg_price_paid.toFixed(3)} SEK/kWh`} />
+              <Stat label="Baseline-pris" value={`${result.res.baseline_avg_price.toFixed(3)} SEK/kWh`} />
+              <Stat label="Beslut loggade" value={result.res.decisions_logged.toString()} />
+            </div>
+          </div>
+        )}
       </Card>
     </div>
   );
@@ -131,6 +178,15 @@ function Section({ title, children }: { title: string; children: React.ReactNode
     <div className="space-y-2.5">
       <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{title}</Label>
       {children}
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-background/60 border border-border/40 px-3 py-2">
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className="font-semibold text-sm mt-0.5">{value}</div>
     </div>
   );
 }
