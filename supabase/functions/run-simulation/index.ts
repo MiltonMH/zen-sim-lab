@@ -215,6 +215,8 @@ Deno.serve(async (req) => {
 
       for (const h of scored) {
         const hourConsKw = avgHouseKw * (h.weight / (sumWeights / 24));
+        const gridTariffSek = lookupTariff(h.iso, h.hourOfDay);
+        const totalCostPerKwh = (h.price + gridTariffSek + ENERGY_TAX_SEK) * VAT_MULTIPLIER;
         let decision: "charge" | "pause" | "v2h" | "emergency_charge" = "pause";
         let reason = "no_action";
         let chargeKw = 0;
