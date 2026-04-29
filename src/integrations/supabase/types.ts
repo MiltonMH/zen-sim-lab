@@ -94,10 +94,13 @@ export type Database = {
         Row: {
           battery_kwh: number
           brand: string
+          ccs2_port: boolean | null
           created_at: string
           id: string
           max_charge_kw: number | null
+          max_dc_charge_kw: number | null
           max_discharge_kw: number | null
+          max_v2x_discharge_kw: number | null
           model: string
           range_km: number | null
           v2x_capable: boolean
@@ -105,10 +108,13 @@ export type Database = {
         Insert: {
           battery_kwh: number
           brand: string
+          ccs2_port?: boolean | null
           created_at?: string
           id?: string
           max_charge_kw?: number | null
+          max_dc_charge_kw?: number | null
           max_discharge_kw?: number | null
+          max_v2x_discharge_kw?: number | null
           model: string
           range_km?: number | null
           v2x_capable?: boolean
@@ -116,13 +122,46 @@ export type Database = {
         Update: {
           battery_kwh?: number
           brand?: string
+          ccs2_port?: boolean | null
           created_at?: string
           id?: string
           max_charge_kw?: number | null
+          max_dc_charge_kw?: number | null
           max_discharge_kw?: number | null
+          max_v2x_discharge_kw?: number | null
           model?: string
           range_km?: number | null
           v2x_capable?: boolean
+        }
+        Relationships: []
+      }
+      grid_company_settings: {
+        Row: {
+          created_at: string
+          grid_company: string
+          has_peak_tariff: boolean
+          id: string
+          notes: string | null
+          peak_tariff_sek_per_kw: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          grid_company: string
+          has_peak_tariff?: boolean
+          id?: string
+          notes?: string | null
+          peak_tariff_sek_per_kw?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          grid_company?: string
+          has_peak_tariff?: boolean
+          id?: string
+          notes?: string | null
+          peak_tariff_sek_per_kw?: number
+          updated_at?: string
         }
         Relationships: []
       }
@@ -235,6 +274,7 @@ export type Database = {
           created_at: string | null
           daily_km: number | null
           ev_model_id: string | null
+          fuse_amps: number | null
           grid_company: string | null
           has_solar_panels: boolean | null
           heating_type: string | null
@@ -264,6 +304,7 @@ export type Database = {
           created_at?: string | null
           daily_km?: number | null
           ev_model_id?: string | null
+          fuse_amps?: number | null
           grid_company?: string | null
           has_solar_panels?: boolean | null
           heating_type?: string | null
@@ -293,6 +334,7 @@ export type Database = {
           created_at?: string | null
           daily_km?: number | null
           ev_model_id?: string | null
+          fuse_amps?: number | null
           grid_company?: string | null
           has_solar_panels?: boolean | null
           heating_type?: string | null
@@ -451,7 +493,9 @@ export type Database = {
           household_id: string | null
           id: string
           optimization_mode: string
+          peak_demand_saving_sek: number | null
           peak_hours_avoided: number | null
+          peaks_avoided_count: number | null
           period_from: string
           period_to: string
           price_savings_sek: number | null
@@ -473,7 +517,9 @@ export type Database = {
           household_id?: string | null
           id?: string
           optimization_mode: string
+          peak_demand_saving_sek?: number | null
           peak_hours_avoided?: number | null
+          peaks_avoided_count?: number | null
           period_from: string
           period_to: string
           price_savings_sek?: number | null
@@ -495,7 +541,9 @@ export type Database = {
           household_id?: string | null
           id?: string
           optimization_mode?: string
+          peak_demand_saving_sek?: number | null
           peak_hours_avoided?: number | null
+          peaks_avoided_count?: number | null
           period_from?: string
           period_to?: string
           price_savings_sek?: number | null
