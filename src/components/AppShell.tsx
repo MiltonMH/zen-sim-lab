@@ -80,8 +80,7 @@ export default function AppShell() {
       case "overview":
         return <Overview />;
       case "data":
-        // Existing Data Explorer is the richer of the two; Import lives inside it via tab in the next step.
-        return <DataExplorer initialTab={(params.tab as "spot" | "tariffs" | undefined) ?? "spot"} />;
+        return <Data initialTab={(params.tab as "spot" | "tariffs" | "import" | undefined) ?? "spot"} />;
       case "simulering":
         return (
           <SimulationRunner
