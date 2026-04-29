@@ -38,6 +38,18 @@ interface Household {
   heating_type: string | null;
   routine_type: string | null;
   annual_kwh: number | null;
+  build_year?: number | null;
+  insulation_quality?: string | null;
+  has_solar_panels?: boolean | null;
+  solar_kwh_per_year?: number | null;
+  adults?: number | null;
+  children?: number | null;
+  children_ages?: string | null;
+  home_during_day?: boolean | null;
+  wake_time?: number | null;
+  leave_time?: number | null;
+  return_time?: number | null;
+  sleep_time?: number | null;
 }
 
 interface EvModel {
