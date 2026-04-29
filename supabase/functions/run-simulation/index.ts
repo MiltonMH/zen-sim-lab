@@ -7,30 +7,41 @@ const corsHeaders = {
 };
 
 // --- Engine constants ---
-const CHARGE_KW = 11;             // AC charging power
-const V2H_KW = 7;                 // conservative discharge during peak
-const TARGET_CHARGE_HOURS = 8;    // hours/day to charge
-const KM_PER_PCT = 5;             // km per % battery
-const PEAK_HOURS = new Set([17, 18, 19, 20]); // V2H window 17-21 (4 hours)
-const DEFAULT_HARD_MAX_PRICE = 2.0;       // default never-charge threshold
-const TOO_CHEAP_PRICE = 0.20;     // always charge below this
-const DEFAULT_SOC_EMERGENCY = 20;         // force charge below this
-const SOC_PROTECT = 95;           // never charge above this
-const KM_PER_KWH_BASELINE = 6;    // simple efficiency for min-charge calc (~6 km per kWh)
-const PRICE_THRESHOLDS = [1.5, 2.0, 2.5];
+const ARC_MAX_KW = 11;            // Arc hardware max (DC, both directions)
+const TARGET_CHARGE_HOURS = 8;    // hours/day to charge in basic mode
+const KM_PER_PCT = 5;             // km per % battery (rough)
+const PEAK_HOURS = new Set([17, 18, 19, 20]); // V2H window 17-21 (4 hours) for level 2
+const DEFAULT_HARD_MAX_PRICE = 2.0;
+const TOO_CHEAP_PRICE = 0.20;
+const DEFAULT_SOC_EMERGENCY = 20;
+const SOC_PROTECT = 95;           // never charge above this (legacy modes)
+const SOC_HEALTH_MAX = 90;        // smart_v2x: never charge above 90 (battery health)
+const SOC_PREFERRED_MAX = 80;     // smart_v2x: stop here unless tomorrow needs more
+const SOC_V2H_FLOOR = 20;         // smart_v2x: never V2H below 20
+const KM_PER_KWH_BASELINE = 6;    // ~6 km per kWh
 const ENERGY_TAX_SEK = 0.549;     // 2025 Swedish energy tax SEK/kWh
 const VAT_MULTIPLIER = 1.25;      // 25% moms
 const DEFAULT_GRID_TARIFF = 0.30; // fallback SEK/kWh when no tariff configured
+const DEFAULT_PEAK_TARIFF = 55;   // SEK/kW/month fallback
+const DC_EFFICIENCY = 0.95;       // both directions
 
 // Default consumption weights (pendlare style) if profile missing
 const DEFAULT_WEIGHTS = [
-  0.3,0.3,0.3,0.3,0.3,0.3, // 0-5 night
-  1.0,2.0,1.2,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.2, // 6-16
-  2.2,2.4,2.2,2.0,1.5,1.0,0.6, // 17-23
+  0.3,0.3,0.3,0.3,0.3,0.3,
+  1.0,2.0,1.2,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.2,
+  2.2,2.4,2.2,2.0,1.5,1.0,0.6,
 ];
 
 interface SpotPrice { hour: string; price_sek_kwh: number }
 interface DayHour { iso: string; hourOfDay: number; price: number; weight: number }
+
+type Mode = "smart_charge_basic" | "smart_charge" | "smart_v2x";
+
+function normalizeMode(m: string | null | undefined): Mode {
+  if (m === "smart_charge_basic" || m === "level1") return "smart_charge_basic";
+  if (m === "smart_v2x" || m === "level3") return "smart_v2x";
+  return "smart_charge"; // default = level 2
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -52,6 +63,8 @@ Deno.serve(async (req) => {
     if (simErr || !sim) return json({ error: simErr?.message ?? "Simulation not found" }, 404);
     await supabase.from("simulation_runs").update({ status: "running" }).eq("id", simulation_id);
 
+    const mode: Mode = normalizeMode(sim.optimization_mode);
+
     // 2. Household
     const { data: hh, error: hErr } = await supabase
       .from("household_profiles").select("*").eq("id", sim.household_id).maybeSingle();
@@ -61,28 +74,51 @@ Deno.serve(async (req) => {
     const baseDailyKm = Number(hh.daily_km) || 30;
     const priceArea = hh.price_area || "SE3";
     const annualKwh = Number(hh.annual_kwh) || 18000;
-    const avgHouseKw = annualKwh / 8760; // average house draw
+    const avgHouseKw = annualKwh / 8760;
+    const fuseAmps = Number(hh.fuse_amps) || 20;
+    // 3-phase Swedish residential: kW = A * 0.23 * 3
+    const fuseMaxKw = fuseAmps * 0.23 * 3;
 
-    // --- Scenario parameters (use stored, else defaults for scenario 1) ---
+    // --- Scenario parameters ---
     const sp = (sim.scenario_params ?? {}) as Record<string, number>;
     const startingSoc = clamp(num(sp.starting_soc, 50), 5, 100);
     const dailyKmMul = clamp(num(sp.daily_km_multiplier, 1.0), 0.1, 3.0);
     const priceThreshold = clamp(num(sp.price_threshold, DEFAULT_HARD_MAX_PRICE), 0.5, 10);
     const minSoc = clamp(num(sp.min_soc, DEFAULT_SOC_EMERGENCY), 5, 80);
-    // departure_offset_hours kept in params for traceability; not yet used for routing rules
-
     const dailyKm = baseDailyKm * dailyKmMul;
     const dailyKwhNeeded = (dailyKm / KM_PER_PCT) * batteryKwh / 100;
 
-    // 2b. EV V2X capability
-    let v2xCapable = false;
+    // 2b. EV — CCS2 gating + DC limits
+    let ccs2Port = true;
+    let maxDcChargeKw = ARC_MAX_KW;
+    let maxV2xDischargeKw = ARC_MAX_KW;
     if (hh.ev_model_id) {
       const { data: ev } = await supabase
-        .from("ev_models").select("v2x_capable").eq("id", hh.ev_model_id).maybeSingle();
-      v2xCapable = !!ev?.v2x_capable;
+        .from("ev_models")
+        .select("ccs2_port, max_dc_charge_kw, max_v2x_discharge_kw")
+        .eq("id", hh.ev_model_id).maybeSingle();
+      if (ev) {
+        ccs2Port = ev.ccs2_port !== false; // default true
+        if (ev.max_dc_charge_kw != null) maxDcChargeKw = Number(ev.max_dc_charge_kw);
+        if (ev.max_v2x_discharge_kw != null) maxV2xDischargeKw = Number(ev.max_v2x_discharge_kw);
+      }
     }
 
-    // 2c. Consumption profile (24 weights)
+    // CCS2 gating — only smart_v2x requires it (charge-only modes work on AC too via Arc)
+    if (mode === "smart_v2x" && !ccs2Port) {
+      await supabase.from("simulation_runs").update({
+        status: "failed",
+        ended_at: new Date().toISOString(),
+      }).eq("id", simulation_id);
+      return json({
+        error: "Denna bil saknar CCS2-port och är inte kompatibel med Arc laddbox.",
+      }, 400);
+    }
+
+    const chargeMaxKw = Math.min(ARC_MAX_KW, maxDcChargeKw);
+    const v2hMaxKw = Math.min(ARC_MAX_KW, maxV2xDischargeKw);
+
+    // 2c. Consumption profile
     const { data: cps } = await supabase
       .from("consumption_profiles").select("hour, weight").eq("household_id", sim.household_id);
     const weights = [...DEFAULT_WEIGHTS];
@@ -93,10 +129,9 @@ Deno.serve(async (req) => {
     }
     const sumWeights = weights.reduce((s, w) => s + w, 0);
 
-    // 3. Spot prices — try requested area, fall back to SE3 if missing
+    // 3. Spot prices
     const fromIso = `${sim.period_from}T00:00:00+00:00`;
     const toIso = `${sim.period_to}T23:59:59+00:00`;
-    let usedArea = priceArea;
     let { data: prices, error: pErr } = await supabase
       .from("spot_prices")
       .select("hour, price_sek_kwh")
@@ -105,29 +140,25 @@ Deno.serve(async (req) => {
       .order("hour", { ascending: true });
     if (pErr) return failSim(supabase, simulation_id, pErr.message, 500);
     if (!prices || prices.length === 0) {
-      // Fallback to SE3 (only area with full coverage)
       const fb = await supabase.from("spot_prices")
         .select("hour, price_sek_kwh").eq("price_area", "SE3")
         .gte("hour", fromIso).lte("hour", toIso)
         .order("hour", { ascending: true });
       prices = fb.data ?? [];
-      usedArea = "SE3";
     }
     if (!prices || prices.length === 0) {
-      // Find what range we DO have, to give a useful error
       const { data: range } = await supabase
         .from("spot_prices").select("hour").eq("price_area", "SE3")
         .order("hour", { ascending: false }).limit(1);
       const lastHour = range?.[0]?.hour ?? "unknown";
       return failSim(
         supabase, simulation_id,
-        `No spot prices for ${priceArea} between ${sim.period_from} and ${sim.period_to}. Latest available: ${lastHour}. Pick a period within available data.`,
+        `No spot prices for ${priceArea} between ${sim.period_from} and ${sim.period_to}. Latest: ${lastHour}.`,
         400,
       );
     }
 
-
-    // 3b. Grid tariffs for this household's grid_company (if any)
+    // 3b. Energy grid tariffs (SEK/kWh)
     type Tariff = { hour_of_day: number; is_weekend: boolean; tariff_sek_kwh: number; month_from: number | null; month_to: number | null };
     let tariffs: Tariff[] = [];
     if (hh.grid_company) {
@@ -151,6 +182,20 @@ Deno.serve(async (req) => {
       return match ? Number(match.tariff_sek_kwh) : DEFAULT_GRID_TARIFF;
     }
 
+    // 3c. Peak tariff (SEK/kW/month) for this grid company
+    let peakTariffPerKw = DEFAULT_PEAK_TARIFF;
+    let hasPeakTariff = true;
+    if (hh.grid_company) {
+      const { data: gcs } = await supabase
+        .from("grid_company_settings")
+        .select("peak_tariff_sek_per_kw, has_peak_tariff")
+        .eq("grid_company", hh.grid_company).maybeSingle();
+      if (gcs) {
+        peakTariffPerKw = Number(gcs.peak_tariff_sek_per_kw) || DEFAULT_PEAK_TARIFF;
+        hasPeakTariff = gcs.has_peak_tariff !== false;
+      }
+    }
+
     const byDay = new Map<string, DayHour[]>();
     for (const row of prices as SpotPrice[]) {
       const day = stockholmDay(row.hour);
@@ -166,13 +211,15 @@ Deno.serve(async (req) => {
 
     // 5. Per-day optimization
     let totalKwhCharged = 0;
-    let totalCostOptimized = 0;       // spot only (kept for backward-compatible savings calc)
-    let totalCostBaseline = 0;        // spot only baseline
-    let totalCostWithTariff = 0;      // spot + grid tariff + energy tax + VAT
+    let totalCostOptimized = 0;
+    let totalCostBaseline = 0;
+    let totalCostWithTariff = 0;
     let totalCostBaselineWithTariff = 0;
     let totalV2hKwh = 0;
     let totalV2hSavingSek = 0;
     let peakHoursAvoided = 0;
+    let peakDemandSavingSek = 0;
+    let peaksAvoidedCount = 0;
     let decisionsLogged = 0;
     let soc = startingSoc;
 
@@ -188,22 +235,21 @@ Deno.serve(async (req) => {
     let prevPriceExpensive = false;
     const cableDaysSeen = new Set<string>();
 
+    // monthly peak tracking (smart_v2x)
+    const monthlyPeak = new Map<string, number>(); // YYYY-MM → kW
+
     function pushEvent(e: Record<string, unknown>) {
-      eventsBatch.push({
-        simulation_id,
-        household_id: sim.household_id,
-        ...e,
-      });
+      eventsBatch.push({ simulation_id, household_id: sim.household_id, ...e });
     }
 
     for (const day of sortedDays) {
       const dayHours = byDay.get(day)!;
       if (dayHours.length === 0) continue;
+      const monthKey = day.slice(0, 7); // YYYY-MM
 
       const maxPrice = Math.max(...dayHours.map(h => h.price));
       const maxWeight = Math.max(...dayHours.map(h => h.weight));
 
-      // Combined score per hour
       const scored = dayHours.map((h, idx) => {
         const priceScore = maxPrice > 0 ? 1 - (h.price / maxPrice) : 1;
         const consScore = maxWeight > 0 ? 1 - (h.weight / maxWeight) : 1;
@@ -211,32 +257,35 @@ Deno.serve(async (req) => {
         return { ...h, idx, combined };
       });
 
-      // Connected-hour rule: car is only chargeable when it's home (returnTime → leaveTime).
       const isConnectedHour = (hod: number) => {
-        if (returnTime === leaveTime) return true; // edge: assume always home
+        if (returnTime === leaveTime) return true;
         if (returnTime < leaveTime) return hod >= returnTime && hod < leaveTime;
-        // wrap-around (e.g. 17 → 07): connected from returnTime..23 and 0..leaveTime-1
         return hod >= returnTime || hod < leaveTime;
       };
 
-      // Pick top N candidates by combined score, restricted to hours when the car is connected.
+      // Pick top N candidates by combined score, restricted to connected hours.
       const ranked = [...scored]
         .filter(h => isConnectedHour(h.hourOfDay))
         .sort((a, b) => b.combined - a.combined);
-      const pickedCharge = new Set<number>(ranked.slice(0, TARGET_CHARGE_HOURS).map(r => r.idx));
 
-      // Bug 2 fix — TRULY DUMB BASELINE (computed AFTER optimized run below):
-      // Baseline charges the SAME total kWh as optimized, but picks the FIRST connected hours
-      // chronologically (no price-shopping). Same kWh + dumber hour selection → baseline cost
-      // is always ≥ optimized cost, so savings can never be negative.
+      // smart_charge_basic: 8 cheapest connected hours by spot price only
+      const cheapest = [...scored]
+        .filter(h => isConnectedHour(h.hourOfDay))
+        .sort((a, b) => a.price - b.price);
+      const basicPicks = new Set<number>(cheapest.slice(0, TARGET_CHARGE_HOURS).map(r => r.idx));
+      const smartPicks = new Set<number>(ranked.slice(0, TARGET_CHARGE_HOURS).map(r => r.idx));
+      const pickedCharge = mode === "smart_charge_basic" ? basicPicks : smartPicks;
+
       const baselineConnectedHours = [...scored]
         .filter(h => isConnectedHour(h.hourOfDay))
         .sort((a, b) => a.iso.localeCompare(b.iso));
 
-      // Walk hours chronologically
       let dayKwhCharged = 0;
       let dayChargeCost = 0;
       let dayChargeCostWithTariff = 0;
+
+      // V2H allowed for smart_charge (legacy peak window) and smart_v2x (smart logic)
+      const v2hAllowed = mode !== "smart_charge_basic" && ccs2Port;
 
       for (const h of scored) {
         const hourConsKw = avgHouseKw * (h.weight / (sumWeights / 24));
@@ -247,77 +296,149 @@ Deno.serve(async (req) => {
         let chargeKw = 0;
         let v2hSaving = 0;
         let gridDrawKw = hourConsKw;
-
         const connected = isConnectedHour(h.hourOfDay);
 
-        // Hard rule: car not at home → can't charge or discharge
+        // Fuse-aware available charging headroom
+        const fuseAvailableKw = Math.max(0, fuseMaxKw - hourConsKw);
+        const effectiveChargeKw = Math.min(chargeMaxKw, fuseAvailableKw);
+
+        // Battery-health caps (smart_v2x only)
+        const upperSocCap = mode === "smart_v2x" ? SOC_PREFERRED_MAX : SOC_PROTECT;
+        const v2hSocFloor = mode === "smart_v2x" ? SOC_V2H_FLOOR : Math.max(minSoc, 35);
+
+        // Smart V2H decision: scale power by spot price
+        const smartV2hKw = (() => {
+          if (h.price > 2.0) return v2hMaxKw;          // up to 11
+          if (h.price > 1.5) return Math.min(9, v2hMaxKw);
+          if (h.price > 1.0) return Math.min(7, v2hMaxKw);
+          if (h.price > 0.8) return Math.min(5, v2hMaxKw);
+          return 0;
+        })();
+
         if (!connected) {
           decision = "pause";
           reason = "cable_disconnected";
-        }
-        // Hard rule: emergency charge (only if connected)
-        else if (soc < minSoc) {
-          decision = "emergency_charge";
-          chargeKw = CHARGE_KW;
-          reason = "soc_below_20_emergency";
-        }
-        // Hard rule: battery protection
-        else if (soc > SOC_PROTECT) {
+        } else if (fuseAvailableKw <= 0.1) {
           decision = "pause";
-          reason = "soc_above_95_protect";
-        }
-        // Hard rule: too cheap
-        else if (h.price < TOO_CHEAP_PRICE) {
+          reason = "fuse_full";
+        } else if (soc < minSoc) {
+          decision = "emergency_charge";
+          chargeKw = effectiveChargeKw;
+          reason = "soc_below_min_emergency";
+        } else if (soc > upperSocCap) {
+          decision = "pause";
+          reason = mode === "smart_v2x"
+            ? "battery_health_stop_at_80"
+            : "soc_above_protect";
+        } else if (h.price < TOO_CHEAP_PRICE) {
           decision = "charge";
-          chargeKw = CHARGE_KW;
+          chargeKw = effectiveChargeKw;
           reason = "too_cheap_to_ignore";
-        }
-        // Hard rule: too expensive
-        else if (h.price > priceThreshold) {
+        } else if (h.price > priceThreshold) {
           decision = "pause";
           reason = `spot_above_${priceThreshold}sek_blocked`;
           if (pickedCharge.has(h.idx)) peakHoursAvoided++;
         }
-        // V2H during peak window
+        // V2H — smart_v2x: scaled by price; smart_charge: legacy fixed window
         else if (
-          v2xCapable &&
+          v2hAllowed && mode === "smart_v2x" &&
+          smartV2hKw > 0 &&
+          soc > Math.max(35, v2hSocFloor) &&
+          h.hourOfDay >= 7 && h.hourOfDay < 22 &&
+          hourConsKw > 0.5
+        ) {
+          const dischargeKw = Math.min(smartV2hKw, hourConsKw, v2hMaxKw);
+          decision = "v2h";
+          chargeKw = -dischargeKw;
+          v2hSaving = dischargeKw * totalCostPerKwh; // saved at full retail cost (incl tariff+tax+VAT)
+          gridDrawKw = Math.max(0, hourConsKw - dischargeKw);
+          reason = "smart_v2h_price_scaled";
+          totalV2hKwh += dischargeKw;
+          totalV2hSavingSek += v2hSaving;
+        } else if (
+          v2hAllowed && mode === "smart_charge" &&
           PEAK_HOURS.has(h.hourOfDay) &&
           h.price > 1.0 &&
           soc > 40
         ) {
+          const dischargeKw = Math.min(7, v2hMaxKw, hourConsKw + 7);
           decision = "v2h";
-          chargeKw = -V2H_KW;
-          v2hSaving = V2H_KW * h.price;
-          gridDrawKw = Math.max(0, hourConsKw - V2H_KW);
+          chargeKw = -dischargeKw;
+          v2hSaving = dischargeKw * h.price;
+          gridDrawKw = Math.max(0, hourConsKw - dischargeKw);
           reason = "peak_price_v2h";
-          totalV2hKwh += V2H_KW;
+          totalV2hKwh += dischargeKw;
           totalV2hSavingSek += v2hSaving;
         }
-        // Combined-score selection
+        // Combined-score / cheapest selection
         else if (pickedCharge.has(h.idx)) {
-          decision = "charge";
-          chargeKw = CHARGE_KW;
-          reason = "best_combined_score";
+          // Effekttariff guardrail (smart_v2x only)
+          if (mode === "smart_v2x" && hasPeakTariff) {
+            const projectedGridKw = hourConsKw + effectiveChargeKw;
+            const currentMonthlyPeak = monthlyPeak.get(monthKey) ?? 0;
+            if (projectedGridKw > currentMonthlyPeak) {
+              const extraPeakKw = projectedGridKw - currentMonthlyPeak;
+              const extraMonthlyCost = extraPeakKw * peakTariffPerKw;
+              // What we save by charging this hour vs not: roughly (priceThreshold - h.price) * kWh
+              const priceSaving = Math.max(0, (priceThreshold - h.price) * effectiveChargeKw);
+              if (extraMonthlyCost > priceSaving) {
+                decision = "pause";
+                reason = "peak_tariff_avoided";
+                peaksAvoidedCount++;
+                peakDemandSavingSek += extraMonthlyCost - priceSaving;
+                pushEvent({
+                  occurred_at: h.iso,
+                  event_type: "peak_demand_avoided",
+                  value_kw: extraPeakKw,
+                  value_sek_impact: round2(extraMonthlyCost - priceSaving),
+                  reason: `Effekttariff: undvek ny topp +${extraPeakKw.toFixed(1)} kW`,
+                });
+              } else {
+                decision = "charge";
+                chargeKw = effectiveChargeKw;
+                reason = "best_combined_score";
+                monthlyPeak.set(monthKey, projectedGridKw);
+              }
+            } else {
+              decision = "charge";
+              chargeKw = effectiveChargeKw;
+              reason = "best_combined_score";
+            }
+          } else {
+            decision = "charge";
+            chargeKw = effectiveChargeKw;
+            reason = mode === "smart_charge_basic" ? "cheapest_8_hours" : "best_combined_score";
+          }
         } else {
           decision = "pause";
           reason = h.weight >= maxWeight * 0.8 ? "house_peak_consumption" : "lower_score";
           if (PEAK_HOURS.has(h.hourOfDay)) peakHoursAvoided++;
         }
 
-        // Update SoC + cost
+        // Apply state changes with DC efficiency
         if (decision === "charge" || decision === "emergency_charge") {
-          const kwh = CHARGE_KW; // 1 hour
-          soc = Math.min(100, soc + (kwh / batteryKwh) * 100);
-          dayKwhCharged += kwh;
-          dayChargeCost += kwh * h.price;
-          dayChargeCostWithTariff += kwh * totalCostPerKwh;
-          gridDrawKw = CHARGE_KW + hourConsKw;
+          const kwhDrawn = chargeKw; // from grid in 1h
+          const kwhStored = kwhDrawn * DC_EFFICIENCY;
+          soc = Math.min(100, soc + (kwhStored / batteryKwh) * 100);
+          dayKwhCharged += kwhStored;
+          dayChargeCost += kwhDrawn * h.price;
+          dayChargeCostWithTariff += kwhDrawn * totalCostPerKwh;
+          gridDrawKw = chargeKw + hourConsKw;
+          if (mode === "smart_v2x" && hasPeakTariff) {
+            const cur = monthlyPeak.get(monthKey) ?? 0;
+            if (gridDrawKw > cur) monthlyPeak.set(monthKey, gridDrawKw);
+          }
         } else if (decision === "v2h") {
-          soc = Math.max(0, soc - (V2H_KW / batteryKwh) * 100);
+          const dischargeKw = Math.abs(chargeKw);
+          const kwhFromBattery = dischargeKw / DC_EFFICIENCY; // need more from battery to deliver kWh
+          soc = Math.max(0, soc - (kwhFromBattery / batteryKwh) * 100);
         } else {
-          // passive driving consumption spread
           const drivePerHour = dailyKwhNeeded / 24;
           soc = Math.max(0, soc - (drivePerHour / batteryKwh) * 100);
+          if (mode === "smart_v2x" && hasPeakTariff) {
+            const cur = monthlyPeak.get(monthKey) ?? 0;
+            if (gridDrawKw > cur) monthlyPeak.set(monthKey, gridDrawKw);
+          }
         }
 
         logsBatch.push({
@@ -341,144 +462,87 @@ Deno.serve(async (req) => {
 
         // ---- Event detection ----
         const socNow = Number(soc.toFixed(2));
-
         if (h.hourOfDay === leaveTime && !cableDaysSeen.has(`${day}-leave`)) {
           cableDaysSeen.add(`${day}-leave`);
-          pushEvent({
-            occurred_at: h.iso,
-            event_type: "cable_disconnected",
-            value_soc_pct: socNow,
-            reason: "Kunden lämnade hemmet",
-          });
+          pushEvent({ occurred_at: h.iso, event_type: "cable_disconnected", value_soc_pct: socNow, reason: "Kunden lämnade hemmet" });
         }
         if (h.hourOfDay === returnTime && !cableDaysSeen.has(`${day}-return`)) {
           cableDaysSeen.add(`${day}-return`);
-          pushEvent({
-            occurred_at: h.iso,
-            event_type: "cable_connected",
-            value_soc_pct: socNow,
-            reason: "Kunden kom hem",
-          });
+          pushEvent({ occurred_at: h.iso, event_type: "cable_connected", value_soc_pct: socNow, reason: "Kunden kom hem" });
         }
-
         const isCheap = h.price < TOO_CHEAP_PRICE;
         const isExpensive = h.price > priceThreshold;
         if (isCheap && !prevPriceCheap) {
-          pushEvent({
-            occurred_at: h.iso,
-            event_type: "cheap_price_detected",
-            value_price_sek: h.price,
-            reason: `Extremt lågt pris: ${h.price.toFixed(3)} SEK/kWh`,
-          });
+          pushEvent({ occurred_at: h.iso, event_type: "cheap_price_detected", value_price_sek: h.price, reason: `Extremt lågt pris: ${h.price.toFixed(3)} SEK/kWh` });
         }
         if (isExpensive && !prevPriceExpensive) {
-          pushEvent({
-            occurred_at: h.iso,
-            event_type: "expensive_price_detected",
-            value_price_sek: h.price,
-            reason: `Högt pris: ${h.price.toFixed(3)} SEK/kWh`,
-          });
+          pushEvent({ occurred_at: h.iso, event_type: "expensive_price_detected", value_price_sek: h.price, reason: `Högt pris: ${h.price.toFixed(3)} SEK/kWh` });
         }
         prevPriceCheap = isCheap;
         prevPriceExpensive = isExpensive;
 
         if (prevDecision !== decision) {
           if (decision === "emergency_charge") {
-            pushEvent({
-              occurred_at: h.iso,
-              event_type: "emergency_charge_started",
-              value_kw: CHARGE_KW,
-              value_soc_pct: socNow,
-              value_price_sek: h.price,
-              reason: `SoC kritiskt låg: ${socNow}%`,
-            });
+            pushEvent({ occurred_at: h.iso, event_type: "emergency_charge_started", value_kw: chargeKw, value_soc_pct: socNow, value_price_sek: h.price, reason: `SoC kritiskt låg: ${socNow}%` });
           } else if (prevDecision !== "charge" && decision === "charge") {
-            pushEvent({
-              occurred_at: h.iso,
-              event_type: "charging_started",
-              value_kw: CHARGE_KW,
-              value_soc_pct: socNow,
-              value_price_sek: h.price,
-              reason: `Spotpris ${h.price.toFixed(3)} SEK/kWh — under tröskel`,
-            });
+            pushEvent({ occurred_at: h.iso, event_type: "charging_started", value_kw: chargeKw, value_soc_pct: socNow, value_price_sek: h.price, reason: `Spotpris ${h.price.toFixed(3)} SEK/kWh` });
           } else if ((prevDecision === "charge" || prevDecision === "emergency_charge") && decision === "pause") {
             let stopReason = "Schema: topptimme undviken";
             if (h.price > priceThreshold) stopReason = `Spotpris för högt: ${h.price.toFixed(3)} SEK/kWh`;
-            else if (soc > SOC_PROTECT) stopReason = `Batteri fullt: ${socNow}%`;
-            pushEvent({
-              occurred_at: h.iso,
-              event_type: "charging_stopped",
-              value_kw: 0,
-              value_soc_pct: socNow,
-              value_price_sek: h.price,
-              reason: stopReason,
-            });
+            else if (soc > upperSocCap) stopReason = mode === "smart_v2x" ? `Batterihälsa: stannar vid ${SOC_PREFERRED_MAX}%` : `Batteri fullt: ${socNow}%`;
+            else if (reason === "fuse_full") stopReason = "Huvudsäkring full";
+            else if (reason === "peak_tariff_avoided") stopReason = "Effekttariff: undvek ny topp";
+            pushEvent({ occurred_at: h.iso, event_type: "charging_stopped", value_kw: 0, value_soc_pct: socNow, value_price_sek: h.price, reason: stopReason });
           } else if (prevDecision !== "v2h" && decision === "v2h") {
-            pushEvent({
-              occurred_at: h.iso,
-              event_type: "v2h_started",
-              value_kw: -V2H_KW,
-              value_soc_pct: socNow,
-              value_price_sek: h.price,
-              value_sek_impact: Number((V2H_KW * h.price).toFixed(2)),
-              reason: `Topptimme ${h.hourOfDay}:00 — V2H aktiverad`,
-            });
+            pushEvent({ occurred_at: h.iso, event_type: "v2h_started", value_kw: chargeKw, value_soc_pct: socNow, value_price_sek: h.price, value_sek_impact: Number((Math.abs(chargeKw) * h.price).toFixed(2)), reason: `Topptimme ${h.hourOfDay}:00 — V2H aktiverad` });
           } else if (prevDecision === "v2h" && decision !== "v2h") {
-            const stopReason = soc <= minSoc + 1
-              ? `SoC nådde minimigräns: ${socNow}%`
-              : "Topptimme avslutad";
-            pushEvent({
-              occurred_at: h.iso,
-              event_type: "v2h_stopped",
-              value_soc_pct: socNow,
-              reason: stopReason,
-            });
+            const stopReason = soc <= v2hSocFloor + 1 ? `Batterihälsa: V2H stoppad vid ${SOC_V2H_FLOOR}%` : "Topptimme avslutad";
+            pushEvent({ occurred_at: h.iso, event_type: "v2h_stopped", value_soc_pct: socNow, reason: stopReason });
           }
           prevDecision = decision;
         }
       }
 
-      // Bug 3 fix — MINIMUM DAILY CHARGE GUARANTEE:
-      // Always charge at least the minimum needed kWh/day so the car is usable tomorrow,
-      // regardless of price-optimization rules (this matters in flat-price areas like SE4
-      // where the hard threshold rarely triggers but combined-score still skips too much).
+      // MINIMUM DAILY CHARGE GUARANTEE
       const minKwhNeeded = (dailyKm / KM_PER_KWH_BASELINE);
       if (dayKwhCharged < minKwhNeeded) {
         const remainingKwh = minKwhNeeded - dayKwhCharged;
-        const hoursToForce = Math.ceil(remainingKwh / CHARGE_KW);
-        // Pick cheapest hours where we did NOT already charge or v2h
+        const hoursToForce = Math.ceil(remainingKwh / (chargeMaxKw * DC_EFFICIENCY));
         const alreadyChargedIsos = new Set(
           logsBatch
             .filter(l => l.logged_at && (l.decision === "charge" || l.decision === "emergency_charge" || l.decision === "v2h"))
             .map(l => l.logged_at as string),
         );
-        const dayIsos = new Set(scored.map(h => h.iso));
+        const upperCap = mode === "smart_v2x" ? SOC_HEALTH_MAX : SOC_PROTECT;
         const candidates = scored
-          .filter(h => dayIsos.has(h.iso) && isConnectedHour(h.hourOfDay) && !alreadyChargedIsos.has(h.iso) && soc < SOC_PROTECT)
+          .filter(h => isConnectedHour(h.hourOfDay) && !alreadyChargedIsos.has(h.iso) && soc < upperCap)
           .sort((a, b) => a.price - b.price)
           .slice(0, hoursToForce);
 
         for (const h of candidates) {
           if (dayKwhCharged >= minKwhNeeded) break;
-          if (soc >= SOC_PROTECT) break;
-          const kwh = CHARGE_KW;
+          if (soc >= upperCap) break;
+          const hourConsKw = avgHouseKw * (h.weight / (sumWeights / 24));
+          const fuseAvailableKw = Math.max(0, fuseMaxKw - hourConsKw);
+          const kwDrawn = Math.min(chargeMaxKw, fuseAvailableKw);
+          if (kwDrawn <= 0) continue;
+          const kwhStored = kwDrawn * DC_EFFICIENCY;
           const gridTariffSek = lookupTariff(h.iso, h.hourOfDay);
           const totalCostPerKwh = (h.price + gridTariffSek + ENERGY_TAX_SEK) * VAT_MULTIPLIER;
-          soc = Math.min(100, soc + (kwh / batteryKwh) * 100);
-          dayKwhCharged += kwh;
-          dayChargeCost += kwh * h.price;
-          dayChargeCostWithTariff += kwh * totalCostPerKwh;
+          soc = Math.min(100, soc + (kwhStored / batteryKwh) * 100);
+          dayKwhCharged += kwhStored;
+          dayChargeCost += kwDrawn * h.price;
+          dayChargeCostWithTariff += kwDrawn * totalCostPerKwh;
 
-          // Update the existing log row for that hour: flip its decision to charge w/ minimum reason.
           const idx = logsBatch.findIndex(l => l.logged_at === h.iso && l.simulation_id === simulation_id);
           if (idx >= 0) {
             logsBatch[idx] = {
               ...logsBatch[idx],
               decision: "charge",
               reason: "minimum_dagsladdning",
-              charge_kw: Number(CHARGE_KW.toFixed(2)),
+              charge_kw: Number(kwDrawn.toFixed(2)),
               soc_pct: Number(soc.toFixed(2)),
-              grid_draw_kw: Number((CHARGE_KW + Number(logsBatch[idx].house_consumption_kw ?? 0)).toFixed(3)),
+              grid_draw_kw: Number((kwDrawn + Number(logsBatch[idx].house_consumption_kw ?? 0)).toFixed(3)),
             };
           }
         }
@@ -488,31 +552,26 @@ Deno.serve(async (req) => {
       totalCostOptimized += dayChargeCost;
       totalCostWithTariff += dayChargeCostWithTariff;
 
-      // Bug 2 fix — TRULY DUMB BASELINE: charge during EVERY connected hour, regardless of
-      // price, capped only by SoC headroom (battery doesn't overcharge past 100%). This is the
-      // "always plug in, always pull power" strategy and guarantees baseline cost ≥ optimized
-      // cost in any realistic scenario, so reported savings are never negative.
-      // We track a separate baseline SoC per day starting from `startingSoc` for fairness.
-      let baselineSoc = Math.max(startingSoc, 50); // baseline tops up daily; start at startingSoc
-      // Drain baseline by daily driving need first (car drove today)
+      // TRULY DUMB BASELINE — charge every connected hour at spot price (with same tariff/tax)
+      // until full. This is "plug in and pull power", guaranteeing baseline ≥ optimized cost.
+      let baselineSoc = startingSoc;
       baselineSoc = Math.max(0, baselineSoc - (dailyKwhNeeded / batteryKwh) * 100);
       for (const h of baselineConnectedHours) {
         if (baselineSoc >= 100) break;
-        const headroomPct = 100 - baselineSoc;
-        const headroomKwh = (headroomPct / 100) * batteryKwh;
-        const kwhThisHour = Math.min(CHARGE_KW, headroomKwh);
-        if (kwhThisHour <= 0) break;
+        const headroomKwh = ((100 - baselineSoc) / 100) * batteryKwh;
+        const hourConsKw = avgHouseKw * (h.weight / (sumWeights / 24));
+        const fuseAvailableKw = Math.max(0, fuseMaxKw - hourConsKw);
+        const kwDrawn = Math.min(chargeMaxKw, fuseAvailableKw, headroomKwh / DC_EFFICIENCY);
+        if (kwDrawn <= 0) continue;
+        const kwhStored = kwDrawn * DC_EFFICIENCY;
         const tariff = lookupTariff(h.iso, h.hourOfDay);
-        totalCostBaseline += kwhThisHour * h.price;
-        totalCostBaselineWithTariff += kwhThisHour * (h.price + tariff + ENERGY_TAX_SEK) * VAT_MULTIPLIER;
-        baselineSoc = Math.min(100, baselineSoc + (kwhThisHour / batteryKwh) * 100);
+        totalCostBaseline += kwDrawn * h.price;
+        totalCostBaselineWithTariff += kwDrawn * (h.price + tariff + ENERGY_TAX_SEK) * VAT_MULTIPLIER;
+        baselineSoc = Math.min(100, baselineSoc + (kwhStored / batteryKwh) * 100);
       }
     }
 
-    // Bug 1 fix — per-simulation log lifecycle:
-    // Each simulation owns its own logs (now keyed by simulation_id). We delete only THIS
-    // simulation's prior logs (idempotent re-runs) instead of wiping the whole household
-    // window, which previously meant only the last simulation in a bulk run had logs.
+    // Per-simulation log lifecycle
     await supabase.from("optimization_logs").delete().eq("simulation_id", simulation_id);
 
     let logsInserted = 0;
@@ -521,31 +580,20 @@ Deno.serve(async (req) => {
       const { error: lErr, count } = await supabase
         .from("optimization_logs")
         .insert(chunk, { count: "exact" });
-      if (lErr) {
-        console.error("log insert error", lErr.message);
-      } else {
-        logsInserted += count ?? chunk.length;
-      }
+      if (lErr) console.error("log insert error", lErr.message);
+      else logsInserted += count ?? chunk.length;
     }
 
-    // Verify logs landed for this simulation_id; warn loudly if not.
-    const { count: verifyCount, error: verifyErr } = await supabase
+    const { count: verifyCount } = await supabase
       .from("optimization_logs")
       .select("id", { count: "exact", head: true })
       .eq("simulation_id", simulation_id);
-    if (verifyErr) {
-      console.error("log verify error", verifyErr.message);
-    } else if ((verifyCount ?? 0) === 0 && logsBatch.length > 0) {
-      console.error(
-        `❌ optimization_logs verification failed: simulation_id=${simulation_id} expected ${logsBatch.length} rows, found 0`,
-      );
+    if ((verifyCount ?? 0) === 0 && logsBatch.length > 0) {
+      console.error(`❌ logs verify failed sim=${simulation_id}`);
     } else {
-      console.log(
-        `✓ optimization_logs verified: simulation_id=${simulation_id} household=${sim.household_id} rows=${verifyCount}`,
-      );
+      console.log(`✓ logs sim=${simulation_id} rows=${verifyCount} mode=${mode}`);
     }
 
-    // Clear and insert events for this simulation (scenario 1 clears the window)
     if ((sim.scenario_number ?? 1) === 1) {
       await supabase.from("simulation_events").delete().eq("simulation_id", simulation_id);
     }
@@ -555,9 +603,11 @@ Deno.serve(async (req) => {
       if (eErr) console.error("event insert error", eErr.message);
     }
 
-    const priceSavings = totalCostBaseline - totalCostOptimized;
-    const totalSaved = priceSavings + totalV2hSavingSek;
-    const savingsIncludingTariff = (totalCostBaselineWithTariff - totalCostWithTariff) + totalV2hSavingSek * VAT_MULTIPLIER;
+    const priceSavings = Math.max(0, totalCostBaseline - totalCostOptimized);
+    const totalSaved = priceSavings + totalV2hSavingSek + peakDemandSavingSek;
+    const savingsIncludingTariff = Math.max(0, totalCostBaselineWithTariff - totalCostWithTariff)
+      + totalV2hSavingSek
+      + peakDemandSavingSek;
     const avgPricePaid = totalKwhCharged > 0 ? totalCostOptimized / totalKwhCharged : 0;
 
     await supabase.from("simulation_runs").update({
@@ -567,6 +617,8 @@ Deno.serve(async (req) => {
       total_v2h_kwh: round2(totalV2hKwh),
       total_v2h_saving_sek: round2(totalV2hSavingSek),
       peak_hours_avoided: peakHoursAvoided,
+      peak_demand_saving_sek: round2(peakDemandSavingSek),
+      peaks_avoided_count: peaksAvoidedCount,
       avg_price_paid: Number(avgPricePaid.toFixed(4)),
       total_cost_with_tariff: round2(totalCostWithTariff),
       total_saved_including_tariff: round2(savingsIncludingTariff),
@@ -575,6 +627,8 @@ Deno.serve(async (req) => {
     }).eq("id", simulation_id);
 
     return json({
+      mode,
+      ccs2_port: ccs2Port,
       days_processed: sortedDays.length,
       total_kwh_charged: round2(totalKwhCharged),
       total_saved_sek: round2(totalSaved),
@@ -582,10 +636,11 @@ Deno.serve(async (req) => {
       total_v2h_kwh: round2(totalV2hKwh),
       total_v2h_saving_sek: round2(totalV2hSavingSek),
       peak_hours_avoided: peakHoursAvoided,
+      peak_demand_saving_sek: round2(peakDemandSavingSek),
+      peaks_avoided_count: peaksAvoidedCount,
       avg_price_paid: Number(avgPricePaid.toFixed(4)),
       total_cost_with_tariff: round2(totalCostWithTariff),
       total_saved_including_tariff: round2(savingsIncludingTariff),
-      v2x_capable: v2xCapable,
       decisions_logged: decisionsLogged,
       events_logged: eventsBatch.length,
     }, 200);
