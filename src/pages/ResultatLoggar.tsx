@@ -6,13 +6,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
-  ChevronRight, ListFilter, Layers, FileText, Download, Activity,
+  ListFilter, Layers, FileText, Download, Activity,
 } from "lucide-react";
+import { LineChart, Line, ResponsiveContainer } from "recharts";
 import { supabase } from "@/integrations/supabase/client";
 import SimulationDetail from "@/pages/SimulationDetail";
 import EventTimeline from "@/components/EventTimeline";
+import HouseholdProfile from "@/pages/HouseholdProfile";
 import { cn } from "@/lib/utils";
 
 type View = "all" | "households" | "logs";
