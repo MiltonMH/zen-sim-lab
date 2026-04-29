@@ -42,7 +42,7 @@ export default function AppShell() {
           import: "data",
           "data-spot": "data",
           "data-tariffs": "data",
-          households: "simulering",
+          households: "hushall",
           runner: "simulering",
           "runner-bulk": "simulering",
           "results-overview": "resultat",
