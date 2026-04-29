@@ -29,6 +29,7 @@ interface SimRow {
 interface HouseholdRow {
   id: string;
   name: string;
+  household_type?: string | null;
 }
 
 interface RankRow {
