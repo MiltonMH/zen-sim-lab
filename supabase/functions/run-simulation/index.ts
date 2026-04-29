@@ -386,6 +386,7 @@ Deno.serve(async (req) => {
           v2hAllowed && mode === "smart_charge" &&
           PEAK_HOURS.has(h.hourOfDay) &&
           h.price > 1.0 &&
+          h.price > dailyAvgPrice * V2H_DAILY_SPREAD_MULTIPLIER &&
           soc > 40
         ) {
           const dischargeKw = Math.min(7, v2hMaxKw, hourConsKw + 7);
