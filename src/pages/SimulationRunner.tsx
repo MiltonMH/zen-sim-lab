@@ -96,8 +96,11 @@ async function runOneSimulation(
   return { scenario_number: scenarioNumber, params, result: fnData as RunResult };
 }
 
-export default function SimulationRunner() {
-  const [pageMode, setPageMode] = useState<"single" | "bulk">("single");
+export default function SimulationRunner({
+  initialMode = "single",
+  preselectedHouseholdId,
+}: { initialMode?: "single" | "bulk"; preselectedHouseholdId?: string } = {}) {
+  const [pageMode, setPageMode] = useState<"single" | "bulk">(initialMode);
   const [households, setHouseholds] = useState<Household[]>([]);
   const [evMap, setEvMap] = useState<Record<string, { v2x_capable: boolean; brand: string; model: string }>>({});
   const [bounds, setBounds] = useState<{ min: Date; max: Date } | null>(null);
@@ -146,18 +149,18 @@ export default function SimulationRunner() {
       </div>
 
       {pageMode === "single"
-        ? <SingleMode households={households} bounds={bounds} />
+        ? <SingleMode households={households} bounds={bounds} preselectedHouseholdId={preselectedHouseholdId} />
         : <BulkMode households={households} evMap={evMap} bounds={bounds} />}
     </div>
   );
 }
 
 /* ============================ SINGLE MODE ============================ */
-function SingleMode({ households, bounds }: { households: Household[]; bounds: { min: Date; max: Date } | null }) {
+function SingleMode({ households, bounds, preselectedHouseholdId }: { households: Household[]; bounds: { min: Date; max: Date } | null; preselectedHouseholdId?: string }) {
   const [mode, setMode] = useState("price");
   const [scenarios, setScenarios] = useState([10]);
   const [range, setRange] = useState<DateRange | undefined>(undefined);
-  const [householdId, setHouseholdId] = useState<string>("");
+  const [householdId, setHouseholdId] = useState<string>(preselectedHouseholdId ?? "");
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
   const [outcomes, setOutcomes] = useState<ScenarioRunOutcome[]>([]);
