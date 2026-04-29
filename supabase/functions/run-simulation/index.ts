@@ -12,11 +12,12 @@ const V2H_KW = 7;                 // conservative discharge during peak
 const TARGET_CHARGE_HOURS = 8;    // hours/day to charge
 const KM_PER_PCT = 5;             // km per % battery
 const PEAK_HOURS = new Set([17, 18, 19, 20]); // V2H window 17-21 (4 hours)
-const HARD_MAX_PRICE = 2.0;       // never charge above this
+const DEFAULT_HARD_MAX_PRICE = 2.0;       // default never-charge threshold
 const TOO_CHEAP_PRICE = 0.20;     // always charge below this
-const SOC_EMERGENCY = 20;         // force charge below this
+const DEFAULT_SOC_EMERGENCY = 20;         // force charge below this
 const SOC_PROTECT = 95;           // never charge above this
 const BASELINE_HOURS = [20, 21, 22, 23, 0, 1, 2, 3]; // unoptimized fixed window 20-04
+const PRICE_THRESHOLDS = [1.5, 2.0, 2.5];
 
 // Default consumption weights (pendlare style) if profile missing
 const DEFAULT_WEIGHTS = [
