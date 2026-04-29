@@ -45,15 +45,26 @@ export default function ImportData() {
     setProgress({ done: 0, total: 0 });
 
     try {
+      // End is exclusive in the Energidata API — add one day so the user's
+      // selected end date is included in the result set.
+      const endDate = new Date(range.to);
+      endDate.setDate(endDate.getDate() + 1);
+
       const start = format(range.from, "yyyy-MM-dd") + "T00:00";
-      const end = format(range.to, "yyyy-MM-dd") + "T00:00";
+      const end = format(endDate, "yyyy-MM-dd") + "T00:00";
       const filter = encodeURIComponent(JSON.stringify({ PriceArea: ["DK1"] }));
       const url = `https://api.energidataservice.dk/dataset/Elspotprices?limit=0&filter=${filter}&start=${start}&end=${end}&sort=HourDK%20asc`;
 
+      console.log("[ImportData] Fetching", url);
       const res = await fetch(url);
-      if (!res.ok) throw new Error(`Energidata API returned ${res.status}`);
+      if (!res.ok) {
+        const body = await res.text();
+        console.error("[ImportData] API error", res.status, body);
+        throw new Error(`Energidata API returned ${res.status}`);
+      }
       const json = await res.json();
       const records: ElspotRecord[] = json.records ?? [];
+      console.log("[ImportData] Got", records.length, "records");
 
       if (records.length === 0) {
         toast.error("No data returned for that range");
