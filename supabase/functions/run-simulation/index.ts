@@ -278,6 +278,7 @@ Deno.serve(async (req) => {
           soc = Math.min(100, soc + (kwh / batteryKwh) * 100);
           dayKwhCharged += kwh;
           dayChargeCost += kwh * h.price;
+          dayChargeCostWithTariff += kwh * totalCostPerKwh;
           gridDrawKw = CHARGE_KW + hourConsKw;
         } else if (decision === "v2h") {
           soc = Math.max(0, soc - (V2H_KW / batteryKwh) * 100);
@@ -299,12 +300,16 @@ Deno.serve(async (req) => {
           grid_draw_kw: Number(gridDrawKw.toFixed(3)),
           v2h_saving_sek: Number(v2hSaving.toFixed(4)),
           combined_score: Number(h.combined.toFixed(4)),
+          grid_tariff_sek: Number(gridTariffSek.toFixed(4)),
+          energy_tax_sek: ENERGY_TAX_SEK,
+          total_cost_per_kwh: Number(totalCostPerKwh.toFixed(4)),
         });
         decisionsLogged++;
       }
 
       totalKwhCharged += dayKwhCharged;
       totalCostOptimized += dayChargeCost;
+      totalCostWithTariff += dayChargeCostWithTariff;
     }
 
     // Only the first scenario clears prior logs in the window;
