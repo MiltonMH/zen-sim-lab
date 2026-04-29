@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Download, CheckCircle2, AlertCircle, FlaskConical } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -14,7 +15,7 @@ interface ElpriceRecord {
 }
 
 const PRICE_AREA = "SE3";
-const YEAR = 2024;
+const YEAR_OPTIONS = [2024, 2025] as const;
 
 type Phase = "idle" | "importing" | "done" | "error";
 
@@ -41,6 +42,7 @@ export default function ImportData() {
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState({ done: 0, total: 0, rows: 0 });
   const [importedCount, setImportedCount] = useState(0);
+  const [selectedYear, setSelectedYear] = useState<number>(2025);
 
   const [testLoading, setTestLoading] = useState(false);
   const [testRecords, setTestRecords] = useState<ElpriceRecord[] | null>(null);
@@ -51,7 +53,7 @@ export default function ImportData() {
     setTestError(null);
     setTestRecords(null);
     try {
-      const res = await fetch(urlForDate(YEAR, 1, 1));
+      const res = await fetch(urlForDate(selectedYear, 1, 1));
       if (!res.ok) throw new Error(`API returned ${res.status}`);
       const json: ElpriceRecord[] = await res.json();
       setTestRecords(json.slice(0, 5));
@@ -63,7 +65,7 @@ export default function ImportData() {
   };
 
   const runImport = async () => {
-    const days = daysInYear(YEAR);
+    const days = daysInYear(selectedYear);
     setPhase("importing");
     setError(null);
     setProgress({ done: 0, total: days.length, rows: 0 });
@@ -86,10 +88,10 @@ export default function ImportData() {
     try {
       for (let i = 0; i < days.length; i++) {
         const { month, day } = days[i];
-        const res = await fetch(urlForDate(YEAR, month, day));
+        const res = await fetch(urlForDate(selectedYear, month, day));
         if (!res.ok) {
           // Skip missing days (e.g. DST or not yet published) but keep going
-          console.warn(`[ImportData] ${YEAR}-${pad(month)}-${pad(day)} returned ${res.status}`);
+          console.warn(`[ImportData] ${selectedYear}-${pad(month)}-${pad(day)} returned ${res.status}`);
         } else {
           const json: ElpriceRecord[] = await res.json();
           for (const r of json) {
@@ -135,8 +137,30 @@ export default function ImportData() {
           <div>
             <h2 className="text-lg font-semibold">Import spot prices</h2>
             <p className="text-sm text-muted-foreground mt-1">
-              Fetch {YEAR} hourly SE3 spot prices from elprisetjustnu.se (day by day).
+              Fetch {selectedYear} hourly SE3 spot prices from elprisetjustnu.se (day by day).
             </p>
+          </div>
+
+          {/* Year selector */}
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 p-4">
+            <div>
+              <p className="text-sm font-medium">Year</p>
+              <p className="text-xs text-muted-foreground">Choose which year to import</p>
+            </div>
+            <Select
+              value={String(selectedYear)}
+              onValueChange={(v) => setSelectedYear(Number(v))}
+              disabled={phase === "importing"}
+            >
+              <SelectTrigger className="w-32 rounded-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {YEAR_OPTIONS.map((y) => (
+                  <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Test API */}
@@ -167,7 +191,7 @@ export default function ImportData() {
                 className="w-full rounded-full bg-primary hover:bg-primary/90 text-primary-foreground h-11 gap-2"
               >
                 <Download className="h-4 w-4" />
-                Import {YEAR} ({daysInYear(YEAR).length} days)
+                Import {selectedYear} ({daysInYear(selectedYear).length} days)
               </Button>
             )}
 
