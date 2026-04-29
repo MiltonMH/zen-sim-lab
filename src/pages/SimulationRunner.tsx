@@ -17,12 +17,14 @@ import type { DateRange } from "react-day-picker";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { OPTIMIZATION_MODES } from "@/lib/optimizationModes";
 
-const modes = [
-  { id: "none", label: "No optimization", desc: "Baseline — charge whenever connected" },
-  { id: "price", label: "Price optimization", desc: "Charge during the cheapest hours" },
-  { id: "full", label: "Full ZenOS", desc: "Price + grid tariff + battery health" },
-];
+const modes = OPTIMIZATION_MODES.map((m) => ({
+  id: m.id,
+  label: m.longLabel,
+  desc: m.description,
+  requiresCcs2: m.requiresCcs2,
+}));
 
 const PRICE_THRESHOLDS = [1.5, 2.0, 2.5];
 const SECONDS_PER_SCENARIO = 3; // rough estimate for ETA
