@@ -405,7 +405,9 @@ Deno.serve(async (req) => {
               const priceSaving = Math.max(0, (priceThreshold - h.price) * effectiveChargeKw);
               if (extraMonthlyCost > priceSaving) {
                 decision = "pause";
-                reason = "peak_tariff_avoided";
+                reason = peakTariffMissing
+                  ? "peak_tariff_avoided | Effekttariff: standardvärde använt (bolag ej registrerat)"
+                  : "peak_tariff_avoided";
                 peaksAvoidedCount++;
                 peakDemandSavingSek += extraMonthlyCost - priceSaving;
                 pushEvent({
