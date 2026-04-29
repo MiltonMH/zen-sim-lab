@@ -16,6 +16,7 @@ import {
 import { Download, Trophy, TrendingUp, Wallet, Activity } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
+import { modeLabel, OPTIMIZATION_MODES } from "@/lib/optimizationModes";
 
 interface SimRow {
   id: string;
@@ -51,7 +52,7 @@ interface EvModel {
   brand: string;
   model: string;
   battery_kwh: number;
-  v2x_capable: boolean;
+  ccs2_port: boolean;
 }
 
 interface OptLog {
@@ -124,7 +125,7 @@ export default function HouseholdProfile({
       if (hhData?.ev_model_id) {
         const { data: evData } = await supabase
           .from("ev_models")
-          .select("id, brand, model, battery_kwh, v2x_capable")
+          .select("id, brand, model, battery_kwh, ccs2_port")
           .eq("id", hhData.ev_model_id)
           .maybeSingle();
         evRow = (evData ?? null) as EvModel | null;
@@ -323,8 +324,8 @@ export default function HouseholdProfile({
       <header className="space-y-2">
         <div className="flex items-center gap-3 flex-wrap">
           <h1 className="text-3xl font-semibold tracking-tight">{hh.name}</h1>
-          {ev?.v2x_capable && (
-            <Badge className="rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-transparent">V2X</Badge>
+          {ev?.ccs2_port !== false && (
+            <Badge className="rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-transparent">CCS2</Badge>
           )}
         </div>
         <p className="text-sm text-muted-foreground">{subInfo.join(" · ")}</p>
@@ -477,8 +478,9 @@ export default function HouseholdProfile({
               <SelectTrigger className="w-[160px] rounded-full"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Alla lägen</SelectItem>
-                <SelectItem value="level1">Nivå 1</SelectItem>
-                <SelectItem value="level2">Nivå 2</SelectItem>
+                {OPTIMIZATION_MODES.map(m => (
+                  <SelectItem key={m.id} value={m.id}>{m.longLabel}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -510,7 +512,7 @@ export default function HouseholdProfile({
                   >
                     <td className="px-5 py-2.5 text-muted-foreground tabular-nums">{fmtDateTime(s.started_at)}</td>
                     <td className="px-5 py-2.5 tabular-nums">{fmtDate(s.period_from)} – {fmtDate(s.period_to)}</td>
-                    <td className="px-5 py-2.5"><Badge variant="secondary" className="rounded-full">{s.optimization_mode}</Badge></td>
+                    <td className="px-5 py-2.5"><Badge variant="secondary" className="rounded-full">{modeLabel(s.optimization_mode)}</Badge></td>
                     <td className="px-5 py-2.5 text-right tabular-nums">{s.scenario_number ?? 1}</td>
                     <td className="px-5 py-2.5 text-right tabular-nums text-emerald-600 dark:text-emerald-400 font-medium">{fmtSek(Number(s.total_saved_sek ?? 0), 2)}</td>
                     <td className="px-5 py-2.5 text-right tabular-nums text-sky-600 dark:text-sky-400">{fmtSek(Number(s.total_v2h_saving_sek ?? 0), 2)}</td>
