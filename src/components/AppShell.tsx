@@ -100,14 +100,14 @@ export default function AppShell() {
   };
 
   return (
-    <div className="min-h-screen w-full flex bg-background">
-      <aside className="w-64 shrink-0 bg-sidebar border-r border-sidebar-border flex flex-col">
-        <div className="px-6 pt-7 pb-8 flex items-center gap-2.5">
+    <div className="h-screen w-full flex bg-background overflow-hidden">
+      <aside className="w-64 shrink-0 bg-sidebar border-r border-sidebar-border flex flex-col h-full">
+        <div className="px-6 pt-7 pb-8 flex items-center gap-2.5 shrink-0">
           <span className="h-2.5 w-2.5 rounded-full bg-primary animate-pulse-dot" />
           <span className="font-semibold text-[17px] tracking-tight text-sidebar-foreground">ZenOS Lab</span>
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-3 pb-4 space-y-1">
+        <nav className="flex-1 min-h-0 overflow-y-auto px-3 pb-4 space-y-1">
           {navItems.map((item) => {
             const Icon = item.icon;
             const active = view === item.id;
@@ -129,7 +129,7 @@ export default function AppShell() {
           })}
         </nav>
 
-        <div className="px-3 py-4 border-t border-sidebar-border space-y-2">
+        <div className="px-3 py-4 border-t border-sidebar-border space-y-2 shrink-0">
           {user?.email && (
             <div className="px-3 text-xs text-muted-foreground truncate">{user.email}</div>
           )}
@@ -143,7 +143,7 @@ export default function AppShell() {
         </div>
       </aside>
 
-      <main className="flex-1 overflow-x-hidden">
+      <main className="flex-1 h-full overflow-y-auto overflow-x-hidden">
         <div className="max-w-[1400px] mx-auto px-10 py-10">
           {renderPage()}
         </div>
