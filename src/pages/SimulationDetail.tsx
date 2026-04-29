@@ -9,12 +9,13 @@ import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import JSZip from "jszip";
 import {
   ComposedChart, Line, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Legend, ReferenceLine,
 } from "recharts";
 import EventTimeline from "@/components/EventTimeline";
 import DecisionViewer from "@/components/DecisionViewer";
-import { modeLongLabel } from "@/lib/optimizationModes";
+import { modeLongLabel, modeLabel } from "@/lib/optimizationModes";
 
 interface Props { simulationId: string; onBack: () => void }
 const PAGE_SIZE = 50;
