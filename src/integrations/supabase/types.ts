@@ -58,6 +58,42 @@ export type Database = {
           },
         ]
       }
+      ev_models: {
+        Row: {
+          battery_kwh: number
+          brand: string
+          created_at: string
+          id: string
+          max_charge_kw: number | null
+          max_discharge_kw: number | null
+          model: string
+          range_km: number | null
+          v2x_capable: boolean
+        }
+        Insert: {
+          battery_kwh: number
+          brand: string
+          created_at?: string
+          id?: string
+          max_charge_kw?: number | null
+          max_discharge_kw?: number | null
+          model: string
+          range_km?: number | null
+          v2x_capable?: boolean
+        }
+        Update: {
+          battery_kwh?: number
+          brand?: string
+          created_at?: string
+          id?: string
+          max_charge_kw?: number | null
+          max_discharge_kw?: number | null
+          model?: string
+          range_km?: number | null
+          v2x_capable?: boolean
+        }
+        Relationships: []
+      }
       grid_tariffs: {
         Row: {
           grid_company: string
@@ -96,6 +132,7 @@ export type Database = {
           commuter_type: string | null
           created_at: string | null
           daily_km: number | null
+          ev_model_id: string | null
           grid_company: string | null
           house_type: string
           id: string
@@ -109,6 +146,7 @@ export type Database = {
           commuter_type?: string | null
           created_at?: string | null
           daily_km?: number | null
+          ev_model_id?: string | null
           grid_company?: string | null
           house_type?: string
           id?: string
@@ -122,13 +160,22 @@ export type Database = {
           commuter_type?: string | null
           created_at?: string | null
           daily_km?: number | null
+          ev_model_id?: string | null
           grid_company?: string | null
           house_type?: string
           id?: string
           name?: string
           price_area?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "household_profiles_ev_model_id_fkey"
+            columns: ["ev_model_id"]
+            isOneToOne: false
+            referencedRelation: "ev_models"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       optimization_logs: {
         Row: {
