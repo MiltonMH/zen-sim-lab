@@ -37,6 +37,7 @@ interface EvModel { id: string; brand: string; model: string; v2x_capable: boole
 interface SimRun {
   id: string; started_at: string | null; period_from: string; period_to: string;
   optimization_mode: string; total_saved_sek: number | null; status: string | null;
+  total_v2h_saving_sek: number | null; peak_hours_avoided: number | null;
 }
 
 const fmtNum = (n: number | null | undefined) => n == null ? "—" : new Intl.NumberFormat("sv-SE").format(n);
