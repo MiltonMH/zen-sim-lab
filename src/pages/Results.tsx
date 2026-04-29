@@ -357,6 +357,7 @@ function HouseholdLevel({
             </BarChart>
           </ResponsiveContainer>
         </div>
+      </Card>
 
       {/* Scenario groups */}
       <ScenarioGroups runs={runs} />
