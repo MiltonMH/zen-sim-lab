@@ -145,6 +145,7 @@ Simulation ID: ${simulationId}`;
             <Button variant="outline" className="rounded-full gap-2"><Download className="h-4 w-4" /> Exportera data <ChevronDown className="h-3 w-3" /></Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={downloadZip}>📦 Ladda ner allt (ZIP, mappstruktur)</DropdownMenuItem>
             <DropdownMenuItem onClick={downloadCsv}>Ladda ner CSV</DropdownMenuItem>
             <DropdownMenuItem onClick={downloadJson}>Ladda ner JSON</DropdownMenuItem>
             <DropdownMenuItem onClick={copySummary}>Kopiera sammanfattning</DropdownMenuItem>
