@@ -145,10 +145,11 @@ export default function Simulering({
                 key="single"
                 initialMode="single"
                 preselectedHouseholdId={preselectedHouseholdId}
+                embedded
               />
             </TabsContent>
             <TabsContent value="bulk" className="mt-6">
-              <SimulationRunner key="bulk" initialMode="bulk" />
+              <SimulationRunner key="bulk" initialMode="bulk" embedded />
             </TabsContent>
           </Tabs>
         </div>
