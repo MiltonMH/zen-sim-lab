@@ -273,10 +273,13 @@ Deno.serve(async (req) => {
       totalCostOptimized += dayChargeCost;
     }
 
-    // Replace prior logs in window
-    await supabase.from("optimization_logs").delete()
-      .eq("household_id", sim.household_id)
-      .gte("logged_at", fromIso).lte("logged_at", toIso);
+    // Only the first scenario clears prior logs in the window;
+    // subsequent scenarios append so the household's full distribution is visible.
+    if ((sim.scenario_number ?? 1) === 1) {
+      await supabase.from("optimization_logs").delete()
+        .eq("household_id", sim.household_id)
+        .gte("logged_at", fromIso).lte("logged_at", toIso);
+    }
 
     for (let i = 0; i < logsBatch.length; i += 500) {
       const chunk = logsBatch.slice(i, i + 500);
