@@ -77,6 +77,10 @@ const empty: Partial<Household> = {
   battery_kwh: null,
   daily_km: 40,
   commuter_type: "pendlare",
+  household_type: "training",
+  data_quality: "verified",
+  notes: "",
+  created_by: "manual",
 };
 
 const HOUSE_TYPES = ["villa", "radhus", "lagenhet", "fritidshus"];
