@@ -27,7 +27,7 @@ interface Household {
 
 type Level = { kind: "overview" } | { kind: "household"; id: string } | { kind: "simulation"; id: string };
 
-export default function Results() {
+export default function Results({ initialView: _initialView = "overview" }: { initialView?: "overview" | "households" | "logs" } = {}) {
   const [level, setLevel] = useState<Level>({ kind: "overview" });
   const [runs, setRuns] = useState<SimRun[]>([]);
   const [households, setHouseholds] = useState<Household[]>([]);
