@@ -403,7 +403,11 @@ export default function Households() {
                     <Field label="Area m²"><Input type="number" value={form.area_m2} onChange={e => setForm({...form, area_m2: e.target.value})} /></Field>
                     <Field label="Byggår"><Input type="number" value={form.build_year} onChange={e => setForm({...form, build_year: e.target.value})} /></Field>
                     <Field label="Prisområde">
-                      <Select value={form.price_area} onValueChange={v => setForm({...form, price_area: v})}>
+                      <Select value={form.price_area} onValueChange={v => setForm({
+                        ...form,
+                        price_area: v,
+                        grid_company: (GRID_COMPANIES_BY_AREA[v as keyof typeof GRID_COMPANIES_BY_AREA] as readonly string[] | undefined)?.includes(form.grid_company) ? form.grid_company : "",
+                      })}>
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>{["SE1","SE2","SE3","SE4"].map(a => <SelectItem key={a} value={a}>{a}</SelectItem>)}</SelectContent>
                       </Select>
