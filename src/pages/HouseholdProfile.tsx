@@ -501,14 +501,16 @@ export default function HouseholdProfile({
                   <th className="text-right px-5 py-2.5 font-medium">V2H</th>
                   <th className="text-right px-5 py-2.5 font-medium">Avg pris</th>
                   <th className="text-left px-5 py-2.5 font-medium">Status</th>
+                  <th className="w-8 px-2"></th>
                 </tr>
               </thead>
               <tbody>
                 {pageRows.map((s) => (
                   <tr
                     key={s.id}
-                    className="border-t border-border/60 hover:bg-muted/30 cursor-pointer"
+                    className="border-t border-border/60 hover:bg-primary/5 cursor-pointer transition-colors group"
                     onClick={() => onOpenSimulation(s.id)}
+                    title="Öppna simulering"
                   >
                     <td className="px-5 py-2.5 text-muted-foreground tabular-nums">{fmtDateTime(s.started_at)}</td>
                     <td className="px-5 py-2.5 tabular-nums">{fmtDate(s.period_from)} – {fmtDate(s.period_to)}</td>
@@ -518,6 +520,7 @@ export default function HouseholdProfile({
                     <td className="px-5 py-2.5 text-right tabular-nums text-sky-600 dark:text-sky-400">{fmtSek(Number(s.total_v2h_saving_sek ?? 0), 2)}</td>
                     <td className="px-5 py-2.5 text-right tabular-nums">{s.avg_price_paid != null ? `${Number(s.avg_price_paid).toFixed(2)} kr` : "—"}</td>
                     <td className="px-5 py-2.5"><StatusPill status={s.status} /></td>
+                    <td className="px-2 text-muted-foreground group-hover:text-primary transition-colors">›</td>
                   </tr>
                 ))}
               </tbody>

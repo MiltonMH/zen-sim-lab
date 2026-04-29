@@ -9,12 +9,13 @@ import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import JSZip from "jszip";
 import {
   ComposedChart, Line, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Legend, ReferenceLine,
 } from "recharts";
 import EventTimeline from "@/components/EventTimeline";
 import DecisionViewer from "@/components/DecisionViewer";
-import { modeLongLabel } from "@/lib/optimizationModes";
+import { modeLongLabel, modeLabel } from "@/lib/optimizationModes";
 
 interface Props { simulationId: string; onBack: () => void }
 const PAGE_SIZE = 50;
@@ -70,19 +71,28 @@ export default function SimulationDetail({ simulationId, onBack }: Props) {
   const summary = buildSummary(sim, logs);
 
   // ---- exports ----
-  const fileBase = `zenios-simulation-${simulationId.slice(0, 8)}-${format(new Date(), "yyyy-MM-dd")}`;
-  const downloadCsv = () => {
-    const cols = ["logged_at","decision","spot_price_sek","soc_pct","charge_kw","house_consumption_kw","grid_draw_kw","v2h_saving_sek","combined_score","reason"];
-    const header = cols.join(",");
-    const rows = logs.map(l => cols.map(c => csvCell(l[c])).join(","));
-    downloadBlob([header, ...rows].join("\n"), `${fileBase}.csv`, "text/csv");
+  // Filnamnsschema: zenios__<hushåll>__<läge>__<period>__sim-<id8>.<ext>
+  // Mappstruktur i ZIP: <hushåll>/<läge>/<period>/...
+  const slug = (s: string) => (s ?? "")
+    .toLowerCase()
+    .replace(/å|ä/g, "a").replace(/ö/g, "o")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60) || "okand";
+  const householdSlug = slug(household?.name ?? "okant-hushall");
+  const modeSlug = slug(modeLabel(sim.optimization_mode));
+  const periodSlug = `${sim.period_from}_${sim.period_to}`;
+  const idShort = simulationId.slice(0, 8);
+  const fileBase = `zenios__${householdSlug}__${modeSlug}__${periodSlug}__sim-${idShort}`;
+  const zipFolder = `${householdSlug}/${modeSlug}/${periodSlug}`;
+
+  const decisionCols = ["logged_at","decision","spot_price_sek","soc_pct","charge_kw","house_consumption_kw","grid_draw_kw","v2h_saving_sek","combined_score","reason"];
+  const buildCsv = () => {
+    const header = decisionCols.join(",");
+    const rows = logs.map(l => decisionCols.map(c => csvCell(l[c])).join(","));
+    return [header, ...rows].join("\n");
   };
-  const downloadJson = () => {
-    const payload = { simulation: sim, household, decisions: logs, summary };
-    downloadBlob(JSON.stringify(payload, null, 2), `${fileBase}.json`, "application/json");
-  };
-  const copySummary = async () => {
-    const txt = `ZenOS Simulering — ${household?.name ?? "—"}
+  const buildSummaryText = () => `ZenOS Simulering — ${household?.name ?? "—"}
 Period: ${sim.period_from} - ${sim.period_to}
 Optimeringsläge: ${modeLongLabel(sim.optimization_mode)}
 Total besparing: ${num(sim.total_saved_sek)} SEK
@@ -92,8 +102,29 @@ Genomsnittspris betalt: ${(Number(sim.avg_price_paid ?? 0) * 100).toFixed(1)} ö
 Topptimmar undvikta: ${sim.peak_hours_avoided ?? 0} st
 Laddade kWh: ${summary.total_charge_kwh.toFixed(1)}
 V2H kWh: ${num(sim.total_v2h_kwh)}
-Beslut loggade: ${logs.length}`;
-    await navigator.clipboard.writeText(txt);
+Beslut loggade: ${logs.length}
+Simulation ID: ${simulationId}`;
+
+  const downloadCsv = () => downloadBlob(buildCsv(), `${fileBase}.csv`, "text/csv");
+  const downloadJson = () => {
+    const payload = { simulation: sim, household, decisions: logs, summary };
+    downloadBlob(JSON.stringify(payload, null, 2), `${fileBase}.json`, "application/json");
+  };
+  const downloadZip = async () => {
+    const zip = new JSZip();
+    const folder = zip.folder(zipFolder)!;
+    folder.file(`${fileBase}.csv`, buildCsv());
+    folder.file(`${fileBase}.json`, JSON.stringify({ simulation: sim, household, decisions: logs, summary }, null, 2));
+    folder.file(`${fileBase}__summary.txt`, buildSummaryText());
+    const blob = await zip.generateAsync({ type: "blob" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `${fileBase}.zip`; a.click();
+    URL.revokeObjectURL(url);
+    toast.success("ZIP nedladdad");
+  };
+  const copySummary = async () => {
+    await navigator.clipboard.writeText(buildSummaryText());
     toast.success("Sammanfattning kopierad!");
   };
 
@@ -114,6 +145,7 @@ Beslut loggade: ${logs.length}`;
             <Button variant="outline" className="rounded-full gap-2"><Download className="h-4 w-4" /> Exportera data <ChevronDown className="h-3 w-3" /></Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={downloadZip}>📦 Ladda ner allt (ZIP, mappstruktur)</DropdownMenuItem>
             <DropdownMenuItem onClick={downloadCsv}>Ladda ner CSV</DropdownMenuItem>
             <DropdownMenuItem onClick={downloadJson}>Ladda ner JSON</DropdownMenuItem>
             <DropdownMenuItem onClick={copySummary}>Kopiera sammanfattning</DropdownMenuItem>
