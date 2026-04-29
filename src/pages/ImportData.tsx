@@ -1,71 +1,60 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Loader2, Download, CheckCircle2, AlertCircle, FlaskConical } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
-interface ElspotRecord {
-  HourDK: string;
-  HourUTC?: string;
-  PriceArea: string;
-  SpotPriceDKK: number | null;
-  SpotPriceEUR: number | null;
+interface ElpriceRecord {
+  SEK_per_kWh: number;
+  EUR_per_kWh?: number;
+  EXR?: number;
+  time_start: string;
+  time_end: string;
 }
 
-const EUR_TO_SEK = 11.20;
 const PRICE_AREA = "SE3";
-const FETCH_URL =
-  'https://dataportal.api.energidataservice.dk/v1/dataset/Elspotprices?limit=8784&filter=%7B%22PriceArea%22:%22DK2%22%7D&start=2024-01-01&end=2024-12-31&sort=HourDK%20asc';
+const YEAR = 2024;
 
-type Phase = "loading" | "ready" | "importing" | "done" | "error";
+type Phase = "idle" | "importing" | "done" | "error";
+
+function pad(n: number) {
+  return n.toString().padStart(2, "0");
+}
+
+function urlForDate(year: number, month: number, day: number) {
+  return `https://www.elprisetjustnu.se/api/v1/prices/${year}/${pad(month)}-${pad(day)}_${PRICE_AREA}.json`;
+}
+
+function daysInYear(year: number): Array<{ month: number; day: number }> {
+  const out: Array<{ month: number; day: number }> = [];
+  const start = new Date(Date.UTC(year, 0, 1));
+  const end = new Date(Date.UTC(year + 1, 0, 1));
+  for (let d = new Date(start); d < end; d.setUTCDate(d.getUTCDate() + 1)) {
+    out.push({ month: d.getUTCMonth() + 1, day: d.getUTCDate() });
+  }
+  return out;
+}
 
 export default function ImportData() {
-  const [phase, setPhase] = useState<Phase>("loading");
-  const [records, setRecords] = useState<ElspotRecord[]>([]);
+  const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [progress, setProgress] = useState({ done: 0, total: 0, rows: 0 });
   const [importedCount, setImportedCount] = useState(0);
 
-  // Test API state
   const [testLoading, setTestLoading] = useState(false);
-  const [testRecords, setTestRecords] = useState<ElspotRecord[] | null>(null);
+  const [testRecords, setTestRecords] = useState<ElpriceRecord[] | null>(null);
   const [testError, setTestError] = useState<string | null>(null);
-
-  const fetchAll = async () => {
-    setPhase("loading");
-    setError(null);
-    try {
-      console.log("[ImportData] Fetching", FETCH_URL);
-      const res = await fetch(FETCH_URL);
-      if (!res.ok) throw new Error(`API returned ${res.status}`);
-      const json = await res.json();
-      const recs: ElspotRecord[] = json.records ?? [];
-      console.log("[ImportData] Got", recs.length, "records");
-      setRecords(recs);
-      setPhase("ready");
-    } catch (e: any) {
-      console.error("[ImportData] Fetch failed", e);
-      setError(e.message ?? "Fetch failed");
-      setPhase("error");
-    }
-  };
-
-  useEffect(() => {
-    fetchAll();
-  }, []);
 
   const runTest = async () => {
     setTestLoading(true);
     setTestError(null);
     setTestRecords(null);
     try {
-      const url =
-        'https://dataportal.api.energidataservice.dk/v1/dataset/Elspotprices?limit=5&filter=%7B%22PriceArea%22:%22DK2%22%7D&sort=HourDK%20desc';
-      const res = await fetch(url);
+      const res = await fetch(urlForDate(YEAR, 1, 1));
       if (!res.ok) throw new Error(`API returned ${res.status}`);
-      const json = await res.json();
-      setTestRecords(json.records ?? []);
+      const json: ElpriceRecord[] = await res.json();
+      setTestRecords(json.slice(0, 5));
     } catch (e: any) {
       setTestError(e.message ?? "Test failed");
     } finally {
@@ -73,39 +62,66 @@ export default function ImportData() {
     }
   };
 
-  const confirmImport = async () => {
-    const rows = records
-      .filter((r) => r.SpotPriceDKK != null)
-      .map((r) => ({
-        hour: new Date(r.HourDK + "Z").toISOString(),
-        price_sek_kwh: Number((((r.SpotPriceDKK as number) / 1000) * EUR_TO_SEK).toFixed(5)),
-        price_area: PRICE_AREA,
-        source: "nordpool",
-      }));
-
+  const runImport = async () => {
+    const days = daysInYear(YEAR);
     setPhase("importing");
-    setProgress({ done: 0, total: rows.length });
+    setError(null);
+    setProgress({ done: 0, total: days.length, rows: 0 });
+
+    const buffer: Array<{
+      hour: string;
+      price_sek_kwh: number;
+      price_area: string;
+      source: string;
+    }> = [];
+    let totalRows = 0;
+
+    const flush = async () => {
+      if (buffer.length === 0) return;
+      const chunk = buffer.splice(0, buffer.length);
+      const { error: insErr } = await supabase.from("spot_prices").insert(chunk);
+      if (insErr) throw insErr;
+    };
 
     try {
-      const chunkSize = 500;
-      let done = 0;
-      for (let i = 0; i < rows.length; i += chunkSize) {
-        const chunk = rows.slice(i, i + chunkSize);
-        const { error: insErr } = await supabase.from("spot_prices").insert(chunk);
-        if (insErr) throw insErr;
-        done += chunk.length;
-        setProgress({ done, total: rows.length });
+      for (let i = 0; i < days.length; i++) {
+        const { month, day } = days[i];
+        const res = await fetch(urlForDate(YEAR, month, day));
+        if (!res.ok) {
+          // Skip missing days (e.g. DST or not yet published) but keep going
+          console.warn(`[ImportData] ${YEAR}-${pad(month)}-${pad(day)} returned ${res.status}`);
+        } else {
+          const json: ElpriceRecord[] = await res.json();
+          for (const r of json) {
+            buffer.push({
+              hour: new Date(r.time_start).toISOString(),
+              price_sek_kwh: Number(r.SEK_per_kWh.toFixed(5)),
+              price_area: PRICE_AREA,
+              source: "elprisetjustnu",
+            });
+            totalRows++;
+          }
+        }
+
+        if (buffer.length >= 500) {
+          await flush();
+        }
+
+        setProgress({ done: i + 1, total: days.length, rows: totalRows });
       }
-      setImportedCount(done);
+      await flush();
+      setImportedCount(totalRows);
       setPhase("done");
-      toast.success(`Successfully imported ${done.toLocaleString()} rows`);
+      toast.success(`Successfully imported ${totalRows.toLocaleString()} rows`);
     } catch (e: any) {
-      console.error("[ImportData] Insert failed", e);
+      console.error("[ImportData] Import failed", e);
       setError(e.message ?? "Import failed");
       setPhase("error");
       toast.error(e.message ?? "Import failed");
     }
   };
+
+  const pct = progress.total ? (progress.done / progress.total) * 100 : 0;
 
   return (
     <div className="space-y-8">
@@ -115,12 +131,11 @@ export default function ImportData() {
       </header>
 
       <Card className="max-w-[640px] mx-auto rounded-2xl border-border/60 shadow-card p-8 space-y-10">
-        {/* Section 1: Spot prices */}
         <section className="space-y-5">
           <div>
             <h2 className="text-lg font-semibold">Import spot prices</h2>
             <p className="text-sm text-muted-foreground mt-1">
-              Fetch 2024 hourly spot prices from Energidata (DK2 → SE3, EUR rate {EUR_TO_SEK}).
+              Fetch {YEAR} hourly SE3 spot prices from elprisetjustnu.se (day by day).
             </p>
           </div>
 
@@ -129,7 +144,7 @@ export default function ImportData() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-medium">Test API connection</p>
-                <p className="text-xs text-muted-foreground">Fetches 5 latest records</p>
+                <p className="text-xs text-muted-foreground">Fetches Jan 1 (first 5 hours)</p>
               </div>
               <Button onClick={runTest} disabled={testLoading} variant="outline" size="sm" className="rounded-full gap-2">
                 {testLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FlaskConical className="h-3.5 w-3.5" />}
@@ -146,51 +161,24 @@ export default function ImportData() {
 
           {/* Main flow */}
           <div className="rounded-xl border border-border/60 p-5 space-y-4">
-            {phase === "loading" && (
-              <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Fetching spot prices...
-              </div>
-            )}
-
-            {phase === "error" && (
-              <div className="space-y-3">
-                <div className="flex items-start gap-2 text-sm text-destructive">
-                  <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
-                  <span>{error}</span>
-                </div>
-                <Button onClick={fetchAll} variant="outline" size="sm" className="rounded-full">
-                  Retry
-                </Button>
-              </div>
-            )}
-
-            {phase === "ready" && (
-              <div className="space-y-4">
-                <p className="text-sm">
-                  <span className="font-semibold">{records.length.toLocaleString()}</span> records ready to import
-                </p>
-                <Button
-                  onClick={confirmImport}
-                  className="w-full rounded-full bg-primary hover:bg-primary/90 text-primary-foreground h-11 gap-2"
-                >
-                  <Download className="h-4 w-4" />
-                  Confirm and import
-                </Button>
-              </div>
+            {phase === "idle" && (
+              <Button
+                onClick={runImport}
+                className="w-full rounded-full bg-primary hover:bg-primary/90 text-primary-foreground h-11 gap-2"
+              >
+                <Download className="h-4 w-4" />
+                Import {YEAR} ({daysInYear(YEAR).length} days)
+              </Button>
             )}
 
             {phase === "importing" && (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <div className="flex items-center gap-2 text-sm">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Importing... {progress.done.toLocaleString()} of {progress.total.toLocaleString()}
+                  Importing day {progress.done} of {progress.total} · {progress.rows.toLocaleString()} rows
                 </div>
                 <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-primary transition-all"
-                    style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }}
-                  />
+                  <div className="h-full bg-primary transition-all" style={{ width: `${pct}%` }} />
                 </div>
               </div>
             )}
@@ -201,8 +189,20 @@ export default function ImportData() {
                   <CheckCircle2 className="h-4 w-4" />
                   Successfully imported {importedCount.toLocaleString()} rows
                 </div>
-                <Button onClick={fetchAll} variant="outline" size="sm" className="rounded-full">
+                <Button onClick={() => setPhase("idle")} variant="outline" size="sm" className="rounded-full">
                   Run again
+                </Button>
+              </div>
+            )}
+
+            {phase === "error" && (
+              <div className="space-y-3">
+                <div className="flex items-start gap-2 text-sm text-destructive">
+                  <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                  <span>{error}</span>
+                </div>
+                <Button onClick={() => setPhase("idle")} variant="outline" size="sm" className="rounded-full">
+                  Reset
                 </Button>
               </div>
             )}
@@ -211,7 +211,6 @@ export default function ImportData() {
 
         <div className="h-px bg-border" />
 
-        {/* Section 2 */}
         <section className="space-y-5">
           <div>
             <h2 className="text-lg font-semibold">Grid tariffs</h2>
