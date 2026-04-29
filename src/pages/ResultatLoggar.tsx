@@ -1,0 +1,487 @@
+import { useEffect, useMemo, useState } from "react";
+import { Card } from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import {
+  ChevronRight, ListFilter, Layers, FileText, Download, Activity,
+} from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import SimulationDetail from "@/pages/SimulationDetail";
+import EventTimeline from "@/components/EventTimeline";
+import { cn } from "@/lib/utils";
+
+type View = "all" | "households" | "logs";
+
+interface SimRow {
+  id: string;
+  household_id: string | null;
+  period_from: string;
+  period_to: string;
+  optimization_mode: string;
+  total_saved_sek: number | null;
+  total_v2h_saving_sek: number | null;
+  scenarios: number | null;
+  status: string | null;
+  started_at: string | null;
+}
+interface HouseholdRow {
+  id: string;
+  name: string;
+}
+
+function fmtSek(n: number | null | undefined, digits = 2) {
+  if (n == null) return "—";
+  return `${Number(n).toLocaleString("sv-SE", { minimumFractionDigits: digits, maximumFractionDigits: digits })} SEK`;
+}
+function fmtDate(s: string | null | undefined) {
+  if (!s) return "—";
+  return new Date(s).toLocaleDateString("sv-SE");
+}
+function fmtDateTime(s: string | null | undefined) {
+  if (!s) return "—";
+  return new Date(s).toLocaleString("sv-SE", { dateStyle: "short", timeStyle: "short" });
+}
+
+function StatusPill({ status }: { status: string | null | undefined }) {
+  const s = (status ?? "").toLowerCase();
+  const tone =
+    s === "completed" ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+    : s === "failed" ? "bg-red-500/15 text-red-700 dark:text-red-400"
+    : "bg-muted text-muted-foreground";
+  return <span className={cn("px-2 py-0.5 rounded-full text-[11px] font-medium", tone)}>{status ?? "—"}</span>;
+}
+
+/* ───────────────── Tab 1: Alla simuleringar ───────────────── */
+function AllSimsTab({
+  sims, households, householdMap, onOpen,
+}: {
+  sims: SimRow[];
+  households: HouseholdRow[];
+  householdMap: Map<string, string>;
+  onOpen: (id: string) => void;
+}) {
+  const [householdFilter, setHouseholdFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [from, setFrom] = useState<string>("");
+  const [to, setTo] = useState<string>("");
+  const [sortBy, setSortBy] = useState<"date" | "saved" | "household">("date");
+
+  const filtered = useMemo(() => {
+    let out = [...sims];
+    if (householdFilter !== "all") out = out.filter((s) => s.household_id === householdFilter);
+    if (statusFilter !== "all") out = out.filter((s) => (s.status ?? "") === statusFilter);
+    if (from) out = out.filter((s) => s.period_to >= from);
+    if (to) out = out.filter((s) => s.period_from <= to);
+    out.sort((a, b) => {
+      if (sortBy === "saved") return Number(b.total_saved_sek ?? 0) - Number(a.total_saved_sek ?? 0);
+      if (sortBy === "household") {
+        const an = householdMap.get(a.household_id ?? "") ?? "";
+        const bn = householdMap.get(b.household_id ?? "") ?? "";
+        return an.localeCompare(bn, "sv");
+      }
+      return (b.started_at ?? "").localeCompare(a.started_at ?? "");
+    });
+    return out;
+  }, [sims, householdFilter, statusFilter, from, to, sortBy, householdMap]);
+
+  return (
+    <div className="space-y-4">
+      <Card className="rounded-2xl border-border/60 shadow-card p-4">
+        <div className="flex items-center gap-3 flex-wrap">
+          <ListFilter className="h-4 w-4 text-muted-foreground" />
+          <Select value={householdFilter} onValueChange={setHouseholdFilter}>
+            <SelectTrigger className="w-[200px] rounded-full"><SelectValue placeholder="Hushåll" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Alla hushåll</SelectItem>
+              {households.map((h) => (
+                <SelectItem key={h.id} value={h.id}>{h.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-[160px] rounded-full" />
+          <span className="text-xs text-muted-foreground">till</span>
+          <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-[160px] rounded-full" />
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-[160px] rounded-full"><SelectValue placeholder="Status" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Alla statusar</SelectItem>
+              <SelectItem value="completed">Completed</SelectItem>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="failed">Failed</SelectItem>
+            </SelectContent>
+          </Select>
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">Sortera</span>
+            <Select value={sortBy} onValueChange={(v) => setSortBy(v as any)}>
+              <SelectTrigger className="w-[160px] rounded-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="date">Datum</SelectItem>
+                <SelectItem value="saved">Sparat</SelectItem>
+                <SelectItem value="household">Hushåll</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </Card>
+
+      <Card className="rounded-2xl border-border/60 shadow-card overflow-hidden">
+        {filtered.length === 0 ? (
+          <div className="p-10 text-center text-sm text-muted-foreground">Inga simuleringar matchar filtren.</div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="bg-muted/30 text-xs uppercase tracking-wide text-muted-foreground">
+              <tr>
+                <th className="text-left px-5 py-2.5 font-medium">Datum</th>
+                <th className="text-left px-5 py-2.5 font-medium">Hushåll</th>
+                <th className="text-left px-5 py-2.5 font-medium">Period</th>
+                <th className="text-left px-5 py-2.5 font-medium">Läge</th>
+                <th className="text-right px-5 py-2.5 font-medium">Sparat</th>
+                <th className="text-right px-5 py-2.5 font-medium">V2H</th>
+                <th className="text-right px-5 py-2.5 font-medium">Scenarion</th>
+                <th className="text-left px-5 py-2.5 font-medium">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((s) => (
+                <tr
+                  key={s.id}
+                  className="border-t border-border/60 hover:bg-muted/30 cursor-pointer transition-colors"
+                  onClick={() => onOpen(s.id)}
+                >
+                  <td className="px-5 py-3 text-muted-foreground tabular-nums">{fmtDateTime(s.started_at)}</td>
+                  <td className="px-5 py-3 font-medium">{s.household_id ? householdMap.get(s.household_id) ?? "—" : "—"}</td>
+                  <td className="px-5 py-3 tabular-nums">{fmtDate(s.period_from)} – {fmtDate(s.period_to)}</td>
+                  <td className="px-5 py-3"><Badge variant="secondary" className="rounded-full">{s.optimization_mode}</Badge></td>
+                  <td className="px-5 py-3 text-right tabular-nums text-emerald-600 dark:text-emerald-400 font-medium">{fmtSek(Number(s.total_saved_sek ?? 0))}</td>
+                  <td className="px-5 py-3 text-right tabular-nums text-sky-600 dark:text-sky-400">{fmtSek(Number(s.total_v2h_saving_sek ?? 0))}</td>
+                  <td className="px-5 py-3 text-right tabular-nums">{s.scenarios ?? 1}</td>
+                  <td className="px-5 py-3"><StatusPill status={s.status} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+/* ───────────────── Tab 2: Per hushåll ───────────────── */
+function PerHouseholdTab({
+  sims, households, householdMap, onOpen, autoExpandHousehold,
+}: {
+  sims: SimRow[];
+  households: HouseholdRow[];
+  householdMap: Map<string, string>;
+  onOpen: (id: string) => void;
+  autoExpandHousehold?: string;
+}) {
+  const grouped = useMemo(() => {
+    const g = new Map<string, SimRow[]>();
+    sims.forEach((s) => {
+      if (!s.household_id) return;
+      const arr = g.get(s.household_id) ?? [];
+      arr.push(s);
+      g.set(s.household_id, arr);
+    });
+    return Array.from(g.entries())
+      .map(([hid, rows]) => {
+        const totalSaved = rows.reduce((a, r) => a + Number(r.total_saved_sek ?? 0), 0);
+        const totalV2h = rows.reduce((a, r) => a + Number(r.total_v2h_saving_sek ?? 0), 0);
+        const best = rows.reduce((a, r) => Math.max(a, Number(r.total_saved_sek ?? 0)), 0);
+        return {
+          household_id: hid,
+          name: householdMap.get(hid) ?? "Okänt",
+          rows: rows.sort((a, b) => (b.started_at ?? "").localeCompare(a.started_at ?? "")),
+          totalSaved, totalV2h, best,
+        };
+      })
+      .sort((a, b) => b.totalSaved - a.totalSaved);
+  }, [sims, householdMap]);
+
+  if (grouped.length === 0) {
+    return (
+      <Card className="rounded-2xl border-border/60 shadow-card p-10 text-center text-sm text-muted-foreground">
+        Inga simuleringar ännu.
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {grouped.map((g) => (
+        <Collapsible key={g.household_id} defaultOpen={g.household_id === autoExpandHousehold}>
+          <Card className="rounded-2xl border-border/60 shadow-card overflow-hidden">
+            <CollapsibleTrigger className="w-full px-5 py-4 flex items-center gap-4 hover:bg-muted/30 transition-colors text-left">
+              <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform data-[state=open]:rotate-90" />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-semibold">{g.name}</div>
+                <div className="text-[11px] text-muted-foreground">{g.rows.length} simuleringar</div>
+              </div>
+              <div className="grid grid-cols-3 gap-6 text-right">
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Total sparat</div>
+                  <div className="text-sm font-medium tabular-nums text-emerald-600 dark:text-emerald-400">{fmtSek(g.totalSaved, 0)}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Bästa körning</div>
+                  <div className="text-sm font-medium tabular-nums">{fmtSek(g.best, 0)}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">V2H totalt</div>
+                  <div className="text-sm font-medium tabular-nums text-sky-600 dark:text-sky-400">{fmtSek(g.totalV2h, 0)}</div>
+                </div>
+              </div>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="border-t border-border/60">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/20 text-xs uppercase tracking-wide text-muted-foreground">
+                    <tr>
+                      <th className="text-left px-5 py-2 font-medium">Datum</th>
+                      <th className="text-left px-5 py-2 font-medium">Period</th>
+                      <th className="text-left px-5 py-2 font-medium">Läge</th>
+                      <th className="text-right px-5 py-2 font-medium">Sparat</th>
+                      <th className="text-right px-5 py-2 font-medium">V2H</th>
+                      <th className="text-left px-5 py-2 font-medium">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {g.rows.map((s) => (
+                      <tr
+                        key={s.id}
+                        className="border-t border-border/60 hover:bg-muted/30 cursor-pointer"
+                        onClick={() => onOpen(s.id)}
+                      >
+                        <td className="px-5 py-2.5 text-muted-foreground tabular-nums">{fmtDateTime(s.started_at)}</td>
+                        <td className="px-5 py-2.5 tabular-nums">{fmtDate(s.period_from)} – {fmtDate(s.period_to)}</td>
+                        <td className="px-5 py-2.5"><Badge variant="secondary" className="rounded-full">{s.optimization_mode}</Badge></td>
+                        <td className="px-5 py-2.5 text-right tabular-nums text-emerald-600 dark:text-emerald-400 font-medium">{fmtSek(Number(s.total_saved_sek ?? 0))}</td>
+                        <td className="px-5 py-2.5 text-right tabular-nums text-sky-600 dark:text-sky-400">{fmtSek(Number(s.total_v2h_saving_sek ?? 0))}</td>
+                        <td className="px-5 py-2.5"><StatusPill status={s.status} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
+      ))}
+    </div>
+  );
+}
+
+/* ───────────────── Tab 3: Händelseloggar ───────────────── */
+function LogsTab({
+  sims, households, householdMap,
+}: {
+  sims: SimRow[];
+  households: HouseholdRow[];
+  householdMap: Map<string, string>;
+}) {
+  const [householdId, setHouseholdId] = useState<string>("all");
+  const [simulationId, setSimulationId] = useState<string>("");
+
+  const visibleSims = useMemo(() => {
+    if (householdId === "all") return sims;
+    return sims.filter((s) => s.household_id === householdId);
+  }, [sims, householdId]);
+
+  // Auto-pick first matching simulation when filters change
+  useEffect(() => {
+    if (visibleSims.length === 0) {
+      setSimulationId("");
+    } else if (!visibleSims.find((s) => s.id === simulationId)) {
+      setSimulationId(visibleSims[0].id);
+    }
+  }, [visibleSims, simulationId]);
+
+  const sim = sims.find((s) => s.id === simulationId);
+  const householdName = sim?.household_id ? householdMap.get(sim.household_id) ?? "—" : "—";
+
+  const exportJson = async () => {
+    if (!simulationId) return;
+    const { data } = await supabase
+      .from("simulation_events")
+      .select("*")
+      .eq("simulation_id", simulationId)
+      .order("occurred_at", { ascending: true });
+    const blob = new Blob([JSON.stringify(data ?? [], null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `events-${simulationId.slice(0, 8)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="space-y-4">
+      <Card className="rounded-2xl border-border/60 shadow-card p-4">
+        <div className="flex items-center gap-3 flex-wrap">
+          <Activity className="h-4 w-4 text-muted-foreground" />
+          <Select value={householdId} onValueChange={setHouseholdId}>
+            <SelectTrigger className="w-[220px] rounded-full"><SelectValue placeholder="Hushåll" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Alla hushåll</SelectItem>
+              {households.map((h) => (
+                <SelectItem key={h.id} value={h.id}>{h.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={simulationId} onValueChange={setSimulationId} disabled={visibleSims.length === 0}>
+            <SelectTrigger className="w-[320px] rounded-full"><SelectValue placeholder="Välj simulering" /></SelectTrigger>
+            <SelectContent>
+              {visibleSims.map((s) => (
+                <SelectItem key={s.id} value={s.id}>
+                  {fmtDate(s.period_from)}–{fmtDate(s.period_to)} · {s.household_id ? householdMap.get(s.household_id) : ""} · {s.optimization_mode}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <div className="ml-auto">
+            <Button variant="outline" size="sm" className="rounded-full gap-2" onClick={exportJson} disabled={!simulationId}>
+              <Download className="h-3.5 w-3.5" /> Exportera (JSON)
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      {sim ? (
+        <EventTimeline
+          simulationId={sim.id}
+          householdName={householdName}
+          periodFrom={sim.period_from}
+          periodTo={sim.period_to}
+        />
+      ) : (
+        <Card className="rounded-2xl border-border/60 shadow-card p-10 text-center text-sm text-muted-foreground">
+          Välj en simulering för att se händelseloggen.
+        </Card>
+      )}
+    </div>
+  );
+}
+
+/* ───────────────── Slide-over wrapper around SimulationDetail ───────────────── */
+function SimulationSlideOver({
+  simulationId, onClose,
+}: {
+  simulationId: string | null;
+  onClose: () => void;
+}) {
+  return (
+    <Sheet open={!!simulationId} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <SheetContent
+        side="right"
+        className="w-full sm:max-w-3xl lg:max-w-4xl overflow-y-auto p-0"
+      >
+        {simulationId && (
+          <div className="px-6 py-6">
+            <SimulationDetail simulationId={simulationId} onBack={onClose} />
+          </div>
+        )}
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+/* ───────────────── Page ───────────────── */
+type LegacyView = "overview" | "households" | "logs";
+
+export default function ResultatLoggar({
+  initialView = "all",
+  initialSimulationId,
+  initialHouseholdId,
+}: {
+  initialView?: View | LegacyView;
+  initialSimulationId?: string;
+  initialHouseholdId?: string;
+} = {}) {
+  // Map legacy view names from older navigation events
+  const mapped: View =
+    initialView === "overview" ? "all"
+    : initialView === "households" ? "households"
+    : initialView === "logs" ? "logs"
+    : (initialView as View);
+
+  const [tab, setTab] = useState<View>(mapped);
+  const [sims, setSims] = useState<SimRow[]>([]);
+  const [households, setHouseholds] = useState<HouseholdRow[]>([]);
+  const [openId, setOpenId] = useState<string | null>(initialSimulationId ?? null);
+
+  useEffect(() => {
+    (async () => {
+      const [{ data: simData }, { data: hhData }] = await Promise.all([
+        supabase
+          .from("simulation_runs")
+          .select("id, household_id, period_from, period_to, optimization_mode, total_saved_sek, total_v2h_saving_sek, scenarios, status, started_at")
+          .order("started_at", { ascending: false })
+          .limit(500),
+        supabase.from("household_profiles").select("id, name").order("name"),
+      ]);
+      setSims((simData ?? []) as SimRow[]);
+      setHouseholds((hhData ?? []) as HouseholdRow[]);
+    })();
+  }, []);
+
+  const householdMap = useMemo(() => {
+    const m = new Map<string, string>();
+    households.forEach((h) => m.set(h.id, h.name));
+    return m;
+  }, [households]);
+
+  return (
+    <div className="space-y-6">
+      <header>
+        <h1 className="text-3xl font-semibold tracking-tight">Resultat & Loggar</h1>
+        <p className="text-muted-foreground mt-1.5 text-sm">
+          Bläddra i alla simuleringar, gruppera per hushåll eller granska händelseloggen.
+        </p>
+      </header>
+
+      <Tabs value={tab} onValueChange={(v) => setTab(v as View)}>
+        <TabsList className="rounded-full bg-muted p-1">
+          <TabsTrigger value="all" className="rounded-full px-5 gap-2">
+            <Layers className="h-3.5 w-3.5" /> Alla simuleringar
+          </TabsTrigger>
+          <TabsTrigger value="households" className="rounded-full px-5 gap-2">
+            <Layers className="h-3.5 w-3.5" /> Per hushåll
+          </TabsTrigger>
+          <TabsTrigger value="logs" className="rounded-full px-5 gap-2">
+            <FileText className="h-3.5 w-3.5" /> Händelseloggar
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="all" className="mt-6">
+          <AllSimsTab
+            sims={sims}
+            households={households}
+            householdMap={householdMap}
+            onOpen={setOpenId}
+          />
+        </TabsContent>
+        <TabsContent value="households" className="mt-6">
+          <PerHouseholdTab
+            sims={sims}
+            households={households}
+            householdMap={householdMap}
+            onOpen={setOpenId}
+            autoExpandHousehold={initialHouseholdId}
+          />
+        </TabsContent>
+        <TabsContent value="logs" className="mt-6">
+          <LogsTab sims={sims} households={households} householdMap={householdMap} />
+        </TabsContent>
+      </Tabs>
+
+      <SimulationSlideOver simulationId={openId} onClose={() => setOpenId(null)} />
+    </div>
+  );
+}
