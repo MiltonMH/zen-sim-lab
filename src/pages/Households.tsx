@@ -153,10 +153,68 @@ export default function Households() {
     setEvPickerOpen(false);
   };
 
+  const resetForm = () => {
+    setForm({
+      name: "", house_type: "villa", area_m2: "140", price_area: "SE3", grid_company: "",
+      build_year: "1990", insulation_quality: "normal", heating_type: "värmepump_luft",
+      has_solar_panels: false, solar_kwh_per_year: "",
+      adults: 2, children: 0, children_ages: "", home_during_day: false,
+      routine_type: "pendlare", wake_time: 6, leave_time: 7, return_time: 17, sleep_time: 23,
+      ev_model_id: "", car_model: "", battery_kwh: "", daily_km: "40", commuter_type: "pendlare",
+      annual_kwh: "",
+    });
+    setAnnualOverride(false);
+    setEditId(null);
+  };
+
+  const handleEdit = (h: Household) => {
+    setEditId(h.id);
+    setAnnualOverride(true);
+    setForm({
+      name: h.name ?? "",
+      house_type: h.house_type ?? "villa",
+      area_m2: h.area_m2?.toString() ?? "",
+      price_area: h.price_area ?? "SE3",
+      grid_company: h.grid_company ?? "",
+      build_year: (h as any).build_year?.toString() ?? "",
+      insulation_quality: (h as any).insulation_quality ?? "normal",
+      heating_type: h.heating_type ?? "värmepump_luft",
+      has_solar_panels: !!(h as any).has_solar_panels,
+      solar_kwh_per_year: (h as any).solar_kwh_per_year?.toString() ?? "",
+      adults: (h as any).adults ?? 2,
+      children: (h as any).children ?? 0,
+      children_ages: (h as any).children_ages ?? "",
+      home_during_day: !!(h as any).home_during_day,
+      routine_type: h.routine_type ?? "pendlare",
+      wake_time: (h as any).wake_time ?? 6,
+      leave_time: (h as any).leave_time ?? 7,
+      return_time: (h as any).return_time ?? 17,
+      sleep_time: (h as any).sleep_time ?? 23,
+      ev_model_id: h.ev_model_id ?? "",
+      car_model: h.car_model ?? "",
+      battery_kwh: h.battery_kwh?.toString() ?? "",
+      daily_km: h.daily_km?.toString() ?? "40",
+      commuter_type: h.commuter_type ?? "pendlare",
+      annual_kwh: h.annual_kwh?.toString() ?? "",
+    });
+    setOpen(true);
+  };
+
+  const handleDelete = async (h: Household) => {
+    await supabase.from("consumption_profiles").delete().eq("household_id", h.id);
+    await supabase.from("simulation_runs").delete().eq("household_id", h.id);
+    const { error } = await supabase.from("household_profiles").delete().eq("id", h.id);
+    if (error) { toast.error(error.message); return; }
+    toast.success(`${h.name} borttagen`);
+    setDeleteTarget(null);
+    if (selectedId === h.id) setSelectedId(null);
+    fetchData();
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    const { data, error } = await supabase.from("household_profiles").insert({
+    const payload = {
       name: form.name,
       house_type: form.house_type,
       area_m2: form.area_m2 ? Number(form.area_m2) : null,
@@ -182,24 +240,29 @@ export default function Households() {
       daily_km: form.daily_km ? Number(form.daily_km) : null,
       commuter_type: form.commuter_type,
       annual_kwh: form.annual_kwh ? Number(form.annual_kwh) : null,
-    }).select("id").single();
+    };
 
-    if (error || !data) {
-      setSaving(false);
-      toast.error(error?.message || "Failed to save");
-      return;
+    let id = editId;
+    if (editId) {
+      const { error } = await supabase.from("household_profiles").update(payload).eq("id", editId);
+      if (error) { setSaving(false); toast.error(error.message); return; }
+    } else {
+      const { data, error } = await supabase.from("household_profiles").insert(payload).select("id").single();
+      if (error || !data) { setSaving(false); toast.error(error?.message || "Failed to save"); return; }
+      id = data.id;
     }
 
-    // Generate consumption profile
+    // Replace consumption profile
     const weights = buildHourlyWeights(form.routine_type, form.leave_time, form.return_time);
-    const rows = weights.map((w, h) => ({ household_id: data.id, hour: h, weight: w }));
+    await supabase.from("consumption_profiles").delete().eq("household_id", id!);
+    const rows = weights.map((w, h) => ({ household_id: id!, hour: h, weight: w }));
     const { error: cpErr } = await supabase.from("consumption_profiles").insert(rows);
     if (cpErr) toast.warning(`Profile not saved: ${cpErr.message}`);
 
     setSaving(false);
-    toast.success("Household saved");
+    toast.success(editId ? "Hushåll uppdaterat" : "Hushåll sparat");
     setOpen(false);
-    setAnnualOverride(false);
+    resetForm();
     fetchData();
   };
 
