@@ -42,6 +42,7 @@ export default function ImportData() {
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState({ done: 0, total: 0, rows: 0 });
   const [importedCount, setImportedCount] = useState(0);
+  const [selectedYear, setSelectedYear] = useState<number>(2025);
 
   const [testLoading, setTestLoading] = useState(false);
   const [testRecords, setTestRecords] = useState<ElpriceRecord[] | null>(null);
