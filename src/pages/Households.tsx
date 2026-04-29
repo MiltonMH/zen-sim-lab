@@ -420,7 +420,17 @@ export default function Households() {
                       </SelectContent>
                     </Select>
                   </Field>
-                  <Field label="Elnätsbolag"><Input value={form.grid_company} onChange={e => setForm({...form, grid_company: e.target.value})} placeholder="Ellevio" /></Field>
+                  <Field label="Elnätsbolag">
+                    <Select value={form.grid_company || "__none__"} onValueChange={v => setForm({...form, grid_company: v === "__none__" ? "" : v})}>
+                      <SelectTrigger><SelectValue placeholder="Välj elnätsbolag" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">— Inget valt —</SelectItem>
+                        {GRID_COMPANIES_BY_AREA[form.price_area as keyof typeof GRID_COMPANIES_BY_AREA]?.map(c => (
+                          <SelectItem key={c} value={c}>{c}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
                   <div className="flex items-center justify-between rounded-lg border p-3">
                     <Label className="text-sm">Solpaneler</Label>
                     <Switch checked={form.has_solar_panels} onCheckedChange={v => setForm({...form, has_solar_panels: v})} />
