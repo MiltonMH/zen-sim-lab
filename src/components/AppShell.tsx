@@ -5,7 +5,7 @@ import { useAuth } from "@/hooks/useAuth";
 import Login from "@/pages/Login";
 import Overview from "@/pages/Overview";
 import Data from "@/pages/Data";
-import ImportData from "@/pages/ImportData";
+
 import Simulering from "@/pages/Simulering";
 import ResultatLoggar from "@/pages/ResultatLoggar";
 
