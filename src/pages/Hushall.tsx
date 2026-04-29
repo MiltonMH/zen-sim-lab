@@ -107,6 +107,7 @@ export default function Hushall() {
   const [editing, setEditing] = useState<Partial<Household> | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Household | null>(null);
   const [saving, setSaving] = useState(false);
+  const [typeFilter, setTypeFilter] = useState<"all" | HouseholdType>("all");
 
   const load = async () => {
     setLoading(true);
