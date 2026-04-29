@@ -454,7 +454,7 @@ Deno.serve(async (req) => {
         );
         const dayIsos = new Set(scored.map(h => h.iso));
         const candidates = scored
-          .filter(h => dayIsos.has(h.iso) && !alreadyChargedIsos.has(h.iso) && soc < SOC_PROTECT)
+          .filter(h => dayIsos.has(h.iso) && isConnectedHour(h.hourOfDay) && !alreadyChargedIsos.has(h.iso) && soc < SOC_PROTECT)
           .sort((a, b) => a.price - b.price)
           .slice(0, hoursToForce);
 
