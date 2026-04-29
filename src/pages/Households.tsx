@@ -553,6 +553,26 @@ export default function Households() {
           </form>
         </SheetContent>
       </Sheet>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Ta bort hushåll?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Är du säker på att du vill ta bort <strong>{deleteTarget?.name}</strong>? Detta tar även bort all simuleringsdata för detta hushåll.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Avbryt</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteTarget && handleDelete(deleteTarget)}
+              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+            >
+              Ta bort
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
