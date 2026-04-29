@@ -28,11 +28,13 @@ const DC_EFFICIENCY = 0.95;       // both directions
 // V2H aktiveringströsklar per prisområde (SEK/kWh)
 // SE1/SE2 har lägre snittpriser → lägre tröskel så V2H faktiskt används
 const V2H_THRESHOLDS: Record<string, number> = {
-  SE1: 0.45,
-  SE2: 0.60,
+  SE1: 0.25,
+  SE2: 0.50,
   SE3: 0.80,
-  SE4: 0.70,
+  SE4: 0.65,
 };
+// V2H kräver också att aktuellt pris ligger minst X% över dagens snittpris
+const V2H_DAILY_SPREAD_MULTIPLIER = 1.3;
 
 // Default consumption weights (pendlare style) if profile missing
 const DEFAULT_WEIGHTS = [
