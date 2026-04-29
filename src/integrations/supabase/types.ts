@@ -272,7 +272,9 @@ export type Database = {
           children_ages: string | null
           commuter_type: string | null
           created_at: string | null
+          created_by: string
           daily_km: number | null
+          data_quality: string
           ev_model_id: string | null
           fuse_amps: number | null
           grid_company: string | null
@@ -280,10 +282,12 @@ export type Database = {
           heating_type: string | null
           home_during_day: boolean | null
           house_type: string
+          household_type: string
           id: string
           insulation_quality: string | null
           leave_time: number | null
           name: string
+          notes: string | null
           price_area: string | null
           return_time: number | null
           routine_type: string | null
@@ -302,7 +306,9 @@ export type Database = {
           children_ages?: string | null
           commuter_type?: string | null
           created_at?: string | null
+          created_by?: string
           daily_km?: number | null
+          data_quality?: string
           ev_model_id?: string | null
           fuse_amps?: number | null
           grid_company?: string | null
@@ -310,10 +316,12 @@ export type Database = {
           heating_type?: string | null
           home_during_day?: boolean | null
           house_type?: string
+          household_type?: string
           id?: string
           insulation_quality?: string | null
           leave_time?: number | null
           name: string
+          notes?: string | null
           price_area?: string | null
           return_time?: number | null
           routine_type?: string | null
@@ -332,7 +340,9 @@ export type Database = {
           children_ages?: string | null
           commuter_type?: string | null
           created_at?: string | null
+          created_by?: string
           daily_km?: number | null
+          data_quality?: string
           ev_model_id?: string | null
           fuse_amps?: number | null
           grid_company?: string | null
@@ -340,10 +350,12 @@ export type Database = {
           heating_type?: string | null
           home_during_day?: boolean | null
           house_type?: string
+          household_type?: string
           id?: string
           insulation_quality?: string | null
           leave_time?: number | null
           name?: string
+          notes?: string | null
           price_area?: string | null
           return_time?: number | null
           routine_type?: string | null

@@ -11,8 +11,10 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Plus, Pencil, Trash2, Home, Car, Zap } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import { HOUSEHOLD_TYPE_FILTERS, householdTypeMeta, type HouseholdType } from "@/lib/householdTypes";
 
 interface EvModel {
   id: string;
@@ -46,6 +48,10 @@ interface Household {
   battery_kwh: number | null;
   daily_km: number | null;
   commuter_type: string | null;
+  household_type: HouseholdType | string | null;
+  data_quality: string | null;
+  notes: string | null;
+  created_by: string | null;
 }
 
 const empty: Partial<Household> = {
@@ -71,6 +77,10 @@ const empty: Partial<Household> = {
   battery_kwh: null,
   daily_km: 40,
   commuter_type: "pendlare",
+  household_type: "training",
+  data_quality: "verified",
+  notes: "",
+  created_by: "manual",
 };
 
 const HOUSE_TYPES = ["villa", "radhus", "lagenhet", "fritidshus"];
@@ -97,6 +107,7 @@ export default function Hushall() {
   const [editing, setEditing] = useState<Partial<Household> | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Household | null>(null);
   const [saving, setSaving] = useState(false);
+  const [typeFilter, setTypeFilter] = useState<"all" | HouseholdType>("all");
 
   const load = async () => {
     setLoading(true);
@@ -193,25 +204,55 @@ export default function Hushall() {
         </Button>
       </header>
 
-      {loading ? (
-        <div className="text-sm text-muted-foreground">Laddar…</div>
-      ) : items.length === 0 ? (
-        <Card className="p-12 text-center">
-          <Home className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
-          <p className="text-sm text-muted-foreground mb-4">Inga hushåll ännu</p>
-          <Button onClick={openCreate} className="gap-2">
-            <Plus className="h-4 w-4" /> Skapa det första
-          </Button>
-        </Card>
-      ) : (
+      {/* Filter tabs */}
+      <Tabs value={typeFilter} onValueChange={(v) => setTypeFilter(v as "all" | HouseholdType)}>
+        <TabsList className="rounded-full bg-muted p-1">
+          {HOUSEHOLD_TYPE_FILTERS.map((f) => {
+            const count = f.value === "all"
+              ? items.length
+              : items.filter(h => (h.household_type ?? "training") === f.value).length;
+            return (
+              <TabsTrigger key={f.value} value={f.value} className="rounded-full px-4 gap-2">
+                {f.label} <span className="text-[11px] text-muted-foreground tabular-nums">({count})</span>
+              </TabsTrigger>
+            );
+          })}
+        </TabsList>
+      </Tabs>
+
+      {(() => {
+        const filtered = typeFilter === "all"
+          ? items
+          : items.filter(h => (h.household_type ?? "training") === typeFilter);
+
+        if (loading) return <div className="text-sm text-muted-foreground">Laddar…</div>;
+        if (items.length === 0) return (
+          <Card className="p-12 text-center">
+            <Home className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+            <p className="text-sm text-muted-foreground mb-4">Inga hushåll ännu</p>
+            <Button onClick={openCreate} className="gap-2">
+              <Plus className="h-4 w-4" /> Skapa det första
+            </Button>
+          </Card>
+        );
+        if (filtered.length === 0) return (
+          <Card className="p-10 text-center text-sm text-muted-foreground">
+            Inga hushåll i denna kategori.
+          </Card>
+        );
+        return (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {items.map(h => {
+          {filtered.map(h => {
             const ev = evModels.find(e => e.id === h.ev_model_id);
+            const meta = householdTypeMeta(h.household_type);
             return (
               <Card key={h.id} className="p-5 space-y-4">
                 <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="font-semibold text-lg leading-tight">{h.name}</h3>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-semibold text-lg leading-tight">{h.name}</h3>
+                      <Badge className={`text-[10px] rounded-full ${meta.className}`}>{meta.label}</Badge>
+                    </div>
                     <p className="text-xs text-muted-foreground mt-1">
                       {h.grid_company ?? "Inget nätbolag"} · {h.price_area} · {h.house_type ?? "—"} {h.area_m2 ? `${h.area_m2}m²` : ""}
                     </p>
@@ -221,7 +262,7 @@ export default function Hushall() {
                       </p>
                     )}
                   </div>
-                  <div className="flex gap-1">
+                  <div className="flex gap-1 shrink-0">
                     <Button variant="ghost" size="icon" onClick={() => openEdit(h)} title="Redigera">
                       <Pencil className="h-4 w-4" />
                     </Button>
@@ -241,12 +282,16 @@ export default function Hushall() {
                     <span>{ev ? `${ev.brand} ${ev.model}` : "Ingen bil"}</span>
                     {ev?.ccs2_port && <Badge variant="secondary" className="text-[10px]">CCS2</Badge>}
                   </div>
+                  {h.notes && (
+                    <p className="text-[11px] text-muted-foreground/80 italic line-clamp-2 pt-1">{h.notes}</p>
+                  )}
                 </div>
               </Card>
             );
           })}
         </div>
-      )}
+        );
+      })()}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
@@ -411,6 +456,46 @@ export default function Hushall() {
                     {ROUTINE.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div className="col-span-2 border-t pt-4 mt-2">
+                <h4 className="font-medium mb-3">Klassificering</h4>
+              </div>
+              <div>
+                <Label>Typ</Label>
+                <Select
+                  value={(editing.household_type as string) ?? "training"}
+                  onValueChange={v => set("household_type", v)}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="seed">Referens (seed)</SelectItem>
+                    <SelectItem value="training">Träningsdata</SelectItem>
+                    <SelectItem value="real">Riktig kund</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Datakvalitet</Label>
+                <Select
+                  value={editing.data_quality ?? "verified"}
+                  onValueChange={v => set("data_quality", v)}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="verified">Verifierad</SelectItem>
+                    <SelectItem value="generated">Genererad</SelectItem>
+                    <SelectItem value="needs_review">Behöver granskas</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="col-span-2">
+                <Label>Anteckningar</Label>
+                <Input
+                  value={editing.notes ?? ""}
+                  onChange={e => set("notes", e.target.value)}
+                  placeholder="Fri text om hushållet (valfritt)"
+                />
               </div>
             </div>
           )}

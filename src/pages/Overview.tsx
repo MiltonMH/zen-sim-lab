@@ -29,6 +29,7 @@ interface SimRow {
 interface HouseholdRow {
   id: string;
   name: string;
+  household_type?: string | null;
 }
 
 interface RankRow {
@@ -76,7 +77,7 @@ export default function Overview() {
           .select("id, household_id, period_from, period_to, total_saved_sek, total_v2h_saving_sek, avg_price_paid, status, started_at, ended_at")
           .order("started_at", { ascending: false })
           .limit(500),
-        supabase.from("household_profiles").select("id, name"),
+        supabase.from("household_profiles").select("id, name, household_type"),
         supabase.from("grid_tariff_sources").select("*", { count: "exact", head: true }),
       ]);
       setSims((simData ?? []) as SimRow[]);
@@ -162,7 +163,16 @@ export default function Overview() {
     },
     {
       label: "Hushåll",
-      sub: "Profiler i lab",
+      sub: (() => {
+        const seed = households.filter(h => (h.household_type ?? "training") === "seed").length;
+        const training = households.filter(h => (h.household_type ?? "training") === "training").length;
+        const real = households.filter(h => h.household_type === "real").length;
+        const parts: string[] = [];
+        if (seed) parts.push(`${seed} referens`);
+        if (training) parts.push(`${training} träning`);
+        if (real) parts.push(`${real} kund`);
+        return parts.length ? parts.join(" + ") : "Profiler i lab";
+      })(),
       value: counts.household_profiles.toLocaleString("sv-SE"),
       icon: Building2,
       tone: "text-foreground",

@@ -16,6 +16,7 @@ import EventTimeline from "@/components/EventTimeline";
 import HouseholdProfile from "@/pages/HouseholdProfile";
 import { cn } from "@/lib/utils";
 import { modeLabel } from "@/lib/optimizationModes";
+import { HOUSEHOLD_TYPE_FILTERS, householdTypeMeta, type HouseholdType } from "@/lib/householdTypes";
 
 type View = "all" | "households" | "logs";
 
@@ -281,6 +282,7 @@ interface HouseholdCardData {
   ev_model: string | null;
   ev_battery: number | null;
   ccs2_port: boolean;
+  household_type: string | null;
 }
 
 function cap(s: string | null | undefined) {
@@ -295,6 +297,8 @@ function PerHouseholdTab({
   households: HouseholdCardData[];
   onOpenHousehold: (id: string) => void;
 }) {
+  const [typeFilter, setTypeFilter] = useState<"all" | HouseholdType>("all");
+
   const grouped = useMemo(() => {
     const g = new Map<string, SimRow[]>();
     sims.forEach((s) => {
@@ -304,6 +308,7 @@ function PerHouseholdTab({
       g.set(s.household_id, arr);
     });
     return households
+      .filter((hh) => typeFilter === "all" || (hh.household_type ?? "training") === typeFilter)
       .map((hh) => {
         const rows = (g.get(hh.id) ?? []).sort((a, b) => (a.started_at ?? "").localeCompare(b.started_at ?? ""));
         const totalSaved = rows.reduce((a, r) => a + Number(r.total_saved_sek ?? 0), 0);
@@ -323,17 +328,39 @@ function PerHouseholdTab({
       })
       .filter((h) => h.rows.length > 0)
       .sort((a, b) => b.totalSaved - a.totalSaved);
-  }, [sims, households]);
+  }, [sims, households, typeFilter]);
+
+  const filterTabs = (
+    <Tabs value={typeFilter} onValueChange={(v) => setTypeFilter(v as "all" | HouseholdType)}>
+      <TabsList className="rounded-full bg-muted p-1">
+        {HOUSEHOLD_TYPE_FILTERS.map((f) => {
+          const count = f.value === "all"
+            ? households.length
+            : households.filter(h => (h.household_type ?? "training") === f.value).length;
+          return (
+            <TabsTrigger key={f.value} value={f.value} className="rounded-full px-4 gap-2">
+              {f.label} <span className="text-[11px] text-muted-foreground tabular-nums">({count})</span>
+            </TabsTrigger>
+          );
+        })}
+      </TabsList>
+    </Tabs>
+  );
 
   if (grouped.length === 0) {
     return (
-      <Card className="rounded-2xl border-border/60 shadow-card p-10 text-center text-sm text-muted-foreground">
-        Inga simuleringar ännu.
-      </Card>
+      <div className="space-y-4">
+        {filterTabs}
+        <Card className="rounded-2xl border-border/60 shadow-card p-10 text-center text-sm text-muted-foreground">
+          Inga simuleringar i denna kategori.
+        </Card>
+      </div>
     );
   }
 
   return (
+    <div className="space-y-4">
+      {filterTabs}
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       {grouped.map((g) => {
         const carText = g.ev_brand
@@ -355,7 +382,13 @@ function PerHouseholdTab({
             <Card className="rounded-2xl border-border/60 shadow-card p-5 transition-all hover:shadow-md hover:border-primary/30">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="text-base font-semibold tracking-tight truncate">{g.name}</div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="text-base font-semibold tracking-tight truncate">{g.name}</div>
+                    {(() => {
+                      const tm = householdTypeMeta(g.household_type);
+                      return <Badge className={`text-[10px] rounded-full ${tm.className}`}>{tm.label}</Badge>;
+                    })()}
+                  </div>
                   <div className="text-[12px] text-muted-foreground mt-0.5 truncate">{meta || "—"}</div>
                   <div className="text-[12px] text-muted-foreground truncate">{carText}</div>
                 </div>
@@ -395,6 +428,7 @@ function PerHouseholdTab({
           </button>
         );
       })}
+    </div>
     </div>
   );
 }
@@ -563,7 +597,7 @@ export default function ResultatLoggar({
           .limit(500),
         supabase
           .from("household_profiles")
-          .select("id, name, house_type, area_m2, price_area, heating_type, car_model, battery_kwh, ev_model_id")
+          .select("id, name, house_type, area_m2, price_area, heating_type, car_model, battery_kwh, ev_model_id, household_type")
           .order("name"),
         supabase.from("ev_models").select("id, brand, model, battery_kwh, ccs2_port"),
       ]);
@@ -571,7 +605,7 @@ export default function ResultatLoggar({
       const hhRows = (hhData ?? []) as Array<HouseholdRow & {
         house_type: string | null; area_m2: number | null; price_area: string | null;
         heating_type: string | null; car_model: string | null; battery_kwh: number | null;
-        ev_model_id: string | null;
+        ev_model_id: string | null; household_type: string | null;
       }>;
       setHouseholds(hhRows.map((h) => ({ id: h.id, name: h.name })));
       const evMap = new Map<string, { brand: string; model: string; battery_kwh: number; ccs2_port: boolean }>();
@@ -591,6 +625,7 @@ export default function ResultatLoggar({
           ev_model: ev?.model ?? null,
           ev_battery: ev?.battery_kwh ?? null,
           ccs2_port: ev?.ccs2_port !== false,
+          household_type: h.household_type,
         };
       }));
     })();
