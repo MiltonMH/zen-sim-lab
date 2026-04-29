@@ -6,11 +6,27 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const CHARGE_KW = 11;          // Arc max charging power
-const CHEAPEST_HOURS = 8;      // Charge during the 8 cheapest hours each day
-const KM_PER_PCT = 5;          // Rough estimate: 5 km per % battery
+// --- Engine constants ---
+const CHARGE_KW = 11;             // AC charging power
+const V2H_KW = 7;                 // conservative discharge during peak
+const TARGET_CHARGE_HOURS = 8;    // hours/day to charge
+const KM_PER_PCT = 5;             // km per % battery
+const PEAK_HOURS = new Set([17, 18, 19, 20]); // V2H window 17-21 (4 hours)
+const HARD_MAX_PRICE = 2.0;       // never charge above this
+const TOO_CHEAP_PRICE = 0.20;     // always charge below this
+const SOC_EMERGENCY = 20;         // force charge below this
+const SOC_PROTECT = 95;           // never charge above this
+const BASELINE_HOURS = [20, 21, 22, 23, 0, 1, 2, 3]; // unoptimized fixed window 20-04
+
+// Default consumption weights (pendlare style) if profile missing
+const DEFAULT_WEIGHTS = [
+  0.3,0.3,0.3,0.3,0.3,0.3, // 0-5 night
+  1.0,2.0,1.2,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.2, // 6-16
+  2.2,2.4,2.2,2.0,1.5,1.0,0.6, // 17-23
+];
 
 interface SpotPrice { hour: string; price_sek_kwh: number }
+interface DayHour { iso: string; hourOfDay: number; price: number; weight: number }
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -26,15 +42,13 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    // 1. Fetch simulation
+    // 1. Simulation
     const { data: sim, error: simErr } = await supabase
       .from("simulation_runs").select("*").eq("id", simulation_id).maybeSingle();
     if (simErr || !sim) return json({ error: simErr?.message ?? "Simulation not found" }, 404);
-
-    // Mark running
     await supabase.from("simulation_runs").update({ status: "running" }).eq("id", simulation_id);
 
-    // 2. Fetch household
+    // 2. Household
     const { data: hh, error: hErr } = await supabase
       .from("household_profiles").select("*").eq("id", sim.household_id).maybeSingle();
     if (hErr || !hh) return failSim(supabase, simulation_id, "Household not found", 404);
@@ -42,11 +56,31 @@ Deno.serve(async (req) => {
     const batteryKwh = Number(hh.battery_kwh) || 60;
     const dailyKm = Number(hh.daily_km) || 30;
     const priceArea = hh.price_area || "SE3";
+    const annualKwh = Number(hh.annual_kwh) || 18000;
+    const avgHouseKw = annualKwh / 8760; // average house draw
 
-    // Energy needed per day (kWh): daily_km / 5 * battery_kwh / 100
     const dailyKwhNeeded = (dailyKm / KM_PER_PCT) * batteryKwh / 100;
 
-    // 3. Fetch spot prices for the period
+    // 2b. EV V2X capability
+    let v2xCapable = false;
+    if (hh.ev_model_id) {
+      const { data: ev } = await supabase
+        .from("ev_models").select("v2x_capable").eq("id", hh.ev_model_id).maybeSingle();
+      v2xCapable = !!ev?.v2x_capable;
+    }
+
+    // 2c. Consumption profile (24 weights)
+    const { data: cps } = await supabase
+      .from("consumption_profiles").select("hour, weight").eq("household_id", sim.household_id);
+    const weights = [...DEFAULT_WEIGHTS];
+    if (cps && cps.length > 0) {
+      for (const r of cps as { hour: number; weight: number }[]) {
+        if (r.hour >= 0 && r.hour < 24) weights[r.hour] = Number(r.weight);
+      }
+    }
+    const sumWeights = weights.reduce((s, w) => s + w, 0);
+
+    // 3. Spot prices
     const fromIso = `${sim.period_from}T00:00:00+00:00`;
     const toIso = `${sim.period_to}T23:59:59+00:00`;
     const { data: prices, error: pErr } = await supabase
@@ -61,115 +95,192 @@ Deno.serve(async (req) => {
       return failSim(supabase, simulation_id, `No spot prices found for ${priceArea} in period`, 400);
     }
 
-    // 4. Group by local day (Europe/Stockholm)
-    const byDay = new Map<string, SpotPrice[]>();
+    // 4. Group by local day
+    const byDay = new Map<string, DayHour[]>();
     for (const row of prices as SpotPrice[]) {
       const day = stockholmDay(row.hour);
+      const hod = stockholmHour(row.hour);
       if (!byDay.has(day)) byDay.set(day, []);
-      byDay.get(day)!.push(row);
+      byDay.get(day)!.push({
+        iso: row.hour,
+        hourOfDay: hod,
+        price: Number(row.price_sek_kwh),
+        weight: weights[hod] ?? 1.0,
+      });
     }
 
-    // 5. Process each day
+    // 5. Per-day optimization
     let totalKwhCharged = 0;
     let totalCostOptimized = 0;
     let totalCostBaseline = 0;
+    let totalV2hKwh = 0;
+    let totalV2hSavingSek = 0;
+    let peakHoursAvoided = 0;
     let decisionsLogged = 0;
-    let soc = 50; // start at 50%
+    let soc = 50;
 
-    const logsBatch: Array<{
-      household_id: string; logged_at: string; decision: string;
-      spot_price_sek: number; soc_pct: number; reason: string;
-    }> = [];
-
+    const logsBatch: Array<Record<string, unknown>> = [];
     const sortedDays = Array.from(byDay.keys()).sort();
 
     for (const day of sortedDays) {
-      const dayPrices = byDay.get(day)!;
-      if (dayPrices.length === 0) continue;
+      const dayHours = byDay.get(day)!;
+      if (dayHours.length === 0) continue;
 
-      // Sort by price, mark cheapest N as charge
-      const ranked = [...dayPrices]
-        .map((p, idx) => ({ ...p, idx }))
-        .sort((a, b) => Number(a.price_sek_kwh) - Number(b.price_sek_kwh));
-      const chargeIdx = new Set(ranked.slice(0, CHEAPEST_HOURS).map(r => r.idx));
+      const maxPrice = Math.max(...dayHours.map(h => h.price));
+      const maxWeight = Math.max(...dayHours.map(h => h.weight));
 
-      // Average daily price for baseline
-      const avgPrice =
-        dayPrices.reduce((s, p) => s + Number(p.price_sek_kwh), 0) / dayPrices.length;
+      // Combined score per hour
+      const scored = dayHours.map((h, idx) => {
+        const priceScore = maxPrice > 0 ? 1 - (h.price / maxPrice) : 1;
+        const consScore = maxWeight > 0 ? 1 - (h.weight / maxWeight) : 1;
+        const combined = priceScore * 0.7 + consScore * 0.3;
+        return { ...h, idx, combined };
+      });
 
-      // Average price across the cheapest charge hours
-      const cheapPrices = ranked.slice(0, CHEAPEST_HOURS).map(r => Number(r.price_sek_kwh));
-      const avgCheapPrice = cheapPrices.reduce((s, p) => s + p, 0) / Math.max(1, cheapPrices.length);
+      // Pick top N candidates by combined score, but apply hard rules
+      const ranked = [...scored].sort((a, b) => b.combined - a.combined);
+      const pickedCharge = new Set<number>(ranked.slice(0, TARGET_CHARGE_HOURS).map(r => r.idx));
 
-      // Cost for the day = same energy need, charged at optimized vs baseline price
-      const dayOptimized = dailyKwhNeeded * avgCheapPrice;
-      const dayBaseline = dailyKwhNeeded * avgPrice;
-      totalCostOptimized += dayOptimized;
-      totalCostBaseline += dayBaseline;
-      totalKwhCharged += dailyKwhNeeded;
+      // Baseline: fixed-window charge regardless of price
+      const baselineHours = scored.filter(h => BASELINE_HOURS.includes(h.hourOfDay));
+      const baselineAvgPrice = baselineHours.length > 0
+        ? baselineHours.reduce((s, h) => s + h.price, 0) / baselineHours.length
+        : dayHours.reduce((s, h) => s + h.price, 0) / dayHours.length;
+      const dayBaselineCost = dailyKwhNeeded * baselineAvgPrice;
+      totalCostBaseline += dayBaselineCost;
 
-      // SoC simulation: charge during cheap hours, discharge spread over the rest
-      const chargePerHour = dailyKwhNeeded / CHEAPEST_HOURS;
-      const dischargePerHour = dailyKwhNeeded / (24 - CHEAPEST_HOURS);
-      const socStepCharge = (chargePerHour / batteryKwh) * 100;
-      const socStepDischarge = (dischargePerHour / batteryKwh) * 100;
+      // Walk hours chronologically
+      let dayKwhCharged = 0;
+      let dayChargeCost = 0;
 
-      for (let i = 0; i < dayPrices.length; i++) {
-        const p = dayPrices[i];
-        const price = Number(p.price_sek_kwh);
-        const isCharge = chargeIdx.has(i);
+      for (const h of scored) {
+        const hourConsKw = avgHouseKw * (h.weight / (sumWeights / 24));
+        let decision: "charge" | "pause" | "v2h" | "emergency_charge" = "pause";
+        let reason = "no_action";
+        let chargeKw = 0;
+        let v2hSaving = 0;
+        let gridDrawKw = hourConsKw;
 
-        if (isCharge) soc = Math.min(100, soc + socStepCharge);
-        else soc = Math.max(0, soc - socStepDischarge);
+        // Hard rule: emergency charge
+        if (soc < SOC_EMERGENCY) {
+          decision = "emergency_charge";
+          chargeKw = CHARGE_KW;
+          reason = "soc_below_20_emergency";
+        }
+        // Hard rule: battery protection
+        else if (soc > SOC_PROTECT) {
+          decision = "pause";
+          reason = "soc_above_95_protect";
+        }
+        // Hard rule: too cheap
+        else if (h.price < TOO_CHEAP_PRICE) {
+          decision = "charge";
+          chargeKw = CHARGE_KW;
+          reason = "too_cheap_to_ignore";
+        }
+        // Hard rule: too expensive
+        else if (h.price > HARD_MAX_PRICE) {
+          decision = "pause";
+          reason = "spot_above_2sek_blocked";
+          if (pickedCharge.has(h.idx)) peakHoursAvoided++;
+        }
+        // V2H during peak window
+        else if (
+          v2xCapable &&
+          PEAK_HOURS.has(h.hourOfDay) &&
+          h.price > 1.0 &&
+          soc > 40
+        ) {
+          decision = "v2h";
+          chargeKw = -V2H_KW;
+          v2hSaving = V2H_KW * h.price;
+          gridDrawKw = Math.max(0, hourConsKw - V2H_KW);
+          reason = "peak_price_v2h";
+          totalV2hKwh += V2H_KW;
+          totalV2hSavingSek += v2hSaving;
+        }
+        // Combined-score selection
+        else if (pickedCharge.has(h.idx)) {
+          decision = "charge";
+          chargeKw = CHARGE_KW;
+          reason = "best_combined_score";
+        } else {
+          decision = "pause";
+          reason = h.weight >= maxWeight * 0.8 ? "house_peak_consumption" : "lower_score";
+          if (PEAK_HOURS.has(h.hourOfDay)) peakHoursAvoided++;
+        }
+
+        // Update SoC + cost
+        if (decision === "charge" || decision === "emergency_charge") {
+          const kwh = CHARGE_KW; // 1 hour
+          soc = Math.min(100, soc + (kwh / batteryKwh) * 100);
+          dayKwhCharged += kwh;
+          dayChargeCost += kwh * h.price;
+          gridDrawKw = CHARGE_KW + hourConsKw;
+        } else if (decision === "v2h") {
+          soc = Math.max(0, soc - (V2H_KW / batteryKwh) * 100);
+        } else {
+          // passive driving consumption spread
+          const drivePerHour = dailyKwhNeeded / 24;
+          soc = Math.max(0, soc - (drivePerHour / batteryKwh) * 100);
+        }
 
         logsBatch.push({
           household_id: sim.household_id,
-          logged_at: p.hour,
-          decision: isCharge ? "charge" : "pause",
-          spot_price_sek: price,
+          logged_at: h.iso,
+          decision,
+          spot_price_sek: h.price,
           soc_pct: Number(soc.toFixed(2)),
-          reason: isCharge ? "cheap_hour" : "expensive_hour",
+          reason,
+          charge_kw: Number(chargeKw.toFixed(2)),
+          house_consumption_kw: Number(hourConsKw.toFixed(3)),
+          grid_draw_kw: Number(gridDrawKw.toFixed(3)),
+          v2h_saving_sek: Number(v2hSaving.toFixed(4)),
+          combined_score: Number(h.combined.toFixed(4)),
         });
         decisionsLogged++;
       }
+
+      totalKwhCharged += dayKwhCharged;
+      totalCostOptimized += dayChargeCost;
     }
 
-    // Replace any prior logs for this household within the period
-    await supabase
-      .from("optimization_logs")
-      .delete()
+    // Replace prior logs in window
+    await supabase.from("optimization_logs").delete()
       .eq("household_id", sim.household_id)
-      .gte("logged_at", fromIso)
-      .lte("logged_at", toIso);
+      .gte("logged_at", fromIso).lte("logged_at", toIso);
 
-    // Insert in chunks
     for (let i = 0; i < logsBatch.length; i += 500) {
       const chunk = logsBatch.slice(i, i + 500);
       const { error: lErr } = await supabase.from("optimization_logs").insert(chunk);
       if (lErr) console.error("log insert error", lErr.message);
     }
 
-    const totalSaved = totalCostBaseline - totalCostOptimized;
+    const priceSavings = totalCostBaseline - totalCostOptimized;
+    const totalSaved = priceSavings + totalV2hSavingSek;
     const avgPricePaid = totalKwhCharged > 0 ? totalCostOptimized / totalKwhCharged : 0;
-    const baselineAvgPrice =
-      sortedDays.reduce((sum, d) => {
-        const dp = byDay.get(d)!;
-        return sum + dp.reduce((s, p) => s + Number(p.price_sek_kwh), 0) / dp.length;
-      }, 0) / Math.max(1, sortedDays.length);
 
     await supabase.from("simulation_runs").update({
       status: "completed",
-      total_saved_sek: Number(totalSaved.toFixed(2)),
+      total_saved_sek: round2(totalSaved),
+      price_savings_sek: round2(priceSavings),
+      total_v2h_kwh: round2(totalV2hKwh),
+      total_v2h_saving_sek: round2(totalV2hSavingSek),
+      peak_hours_avoided: peakHoursAvoided,
       avg_price_paid: Number(avgPricePaid.toFixed(4)),
       ended_at: new Date().toISOString(),
     }).eq("id", simulation_id);
 
     return json({
       days_processed: sortedDays.length,
-      total_kwh_charged: Number(totalKwhCharged.toFixed(2)),
-      total_saved_sek: Number(totalSaved.toFixed(2)),
+      total_kwh_charged: round2(totalKwhCharged),
+      total_saved_sek: round2(totalSaved),
+      price_savings_sek: round2(priceSavings),
+      total_v2h_kwh: round2(totalV2hKwh),
+      total_v2h_saving_sek: round2(totalV2hSavingSek),
+      peak_hours_avoided: peakHoursAvoided,
       avg_price_paid: Number(avgPricePaid.toFixed(4)),
-      baseline_avg_price: Number(baselineAvgPrice.toFixed(4)),
+      v2x_capable: v2xCapable,
       decisions_logged: decisionsLogged,
     }, 200);
   } catch (err) {
@@ -180,22 +291,22 @@ Deno.serve(async (req) => {
 
 function json(body: unknown, status: number) {
   return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    status, headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 }
-
 async function failSim(supabase: any, id: string, msg: string, status: number) {
   await supabase.from("simulation_runs").update({ status: "failed", ended_at: new Date().toISOString() }).eq("id", id);
   return json({ error: msg }, status);
 }
-
-// Returns YYYY-MM-DD in Europe/Stockholm for a given UTC ISO timestamp
+function round2(n: number) { return Number(n.toFixed(2)); }
 function stockholmDay(iso: string): string {
-  const d = new Date(iso);
-  const fmt = new Intl.DateTimeFormat("sv-SE", {
-    timeZone: "Europe/Stockholm",
-    year: "numeric", month: "2-digit", day: "2-digit",
-  });
-  return fmt.format(d); // sv-SE returns YYYY-MM-DD
+  return new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Europe/Stockholm", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date(iso));
+}
+function stockholmHour(iso: string): number {
+  const s = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Europe/Stockholm", hour: "2-digit", hour12: false,
+  }).format(new Date(iso));
+  return parseInt(s, 10);
 }
