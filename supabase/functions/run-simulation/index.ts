@@ -18,6 +18,9 @@ const DEFAULT_SOC_EMERGENCY = 20;         // force charge below this
 const SOC_PROTECT = 95;           // never charge above this
 const BASELINE_HOURS = [20, 21, 22, 23, 0, 1, 2, 3]; // unoptimized fixed window 20-04
 const PRICE_THRESHOLDS = [1.5, 2.0, 2.5];
+const ENERGY_TAX_SEK = 0.549;     // 2025 Swedish energy tax SEK/kWh
+const VAT_MULTIPLIER = 1.25;      // 25% moms
+const DEFAULT_GRID_TARIFF = 0.30; // fallback SEK/kWh when no tariff configured
 
 // Default consumption weights (pendlare style) if profile missing
 const DEFAULT_WEIGHTS = [
