@@ -639,9 +639,6 @@ function DateRangeField({
             defaultMonth={range?.from ?? bounds?.max ?? undefined}
             fromMonth={bounds?.min}
             toMonth={bounds?.max}
-            captionLayout="dropdown-buttons"
-            fromYear={bounds ? bounds.min.getFullYear() : undefined}
-            toYear={bounds ? bounds.max.getFullYear() : undefined}
             disabled={bounds ? { before: bounds.min, after: bounds.max } : undefined}
             className="p-3 pointer-events-auto"
           />
