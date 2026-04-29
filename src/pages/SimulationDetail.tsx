@@ -175,6 +175,17 @@ Beslut loggade: ${logs.length}`;
           />
         </TabsContent>
 
+        {/* ===== BESLUTSVY ===== */}
+        <TabsContent value="decision-viewer" className="mt-6">
+          <DecisionViewer
+            simulationId={simulationId}
+            householdId={sim.household_id}
+            periodFrom={sim.period_from}
+            periodTo={sim.period_to}
+            priceThreshold={Number(sim.scenario_params?.price_threshold ?? 2.0)}
+          />
+        </TabsContent>
+
         {/* ===== GRAF ===== */}
         <TabsContent value="chart" className="mt-6">
           <Card className="rounded-2xl border-border/60 shadow-card p-6">
