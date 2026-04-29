@@ -330,6 +330,8 @@ async function failSim(supabase: any, id: string, msg: string, status: number) {
   return json({ error: msg }, status);
 }
 function round2(n: number) { return Number(n.toFixed(2)); }
+function num(v: unknown, d: number) { const n = Number(v); return Number.isFinite(n) ? n : d; }
+function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)); }
 function stockholmDay(iso: string): string {
   return new Intl.DateTimeFormat("sv-SE", {
     timeZone: "Europe/Stockholm", year: "numeric", month: "2-digit", day: "2-digit",
