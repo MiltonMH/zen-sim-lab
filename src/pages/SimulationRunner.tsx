@@ -128,9 +128,22 @@ export default function SimulationRunner() {
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0" align="start">
-              <Calendar mode="range" selected={range} onSelect={setRange} numberOfMonths={2} className="p-3 pointer-events-auto" />
+              <Calendar
+                mode="range"
+                selected={range}
+                onSelect={setRange}
+                numberOfMonths={2}
+                defaultMonth={bounds?.max ?? undefined}
+                disabled={bounds ? { before: bounds.min, after: bounds.max } : undefined}
+                className="p-3 pointer-events-auto"
+              />
             </PopoverContent>
           </Popover>
+          <p className="text-xs text-muted-foreground mt-2">
+            {bounds
+              ? `Prisdata tillgänglig: ${format(bounds.min, "yyyy-MM-dd")} – ${format(bounds.max, "yyyy-MM-dd")}`
+              : "Laddar tillgängligt datumintervall…"}
+          </p>
         </Section>
 
         <Section title="Optimization mode">
