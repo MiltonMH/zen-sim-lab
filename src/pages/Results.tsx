@@ -357,7 +357,9 @@ function HouseholdLevel({
             </BarChart>
           </ResponsiveContainer>
         </div>
-      </Card>
+
+      {/* Scenario groups */}
+      <ScenarioGroups runs={runs} />
 
       {/* Simulations table */}
       <Card className="rounded-2xl border-border/60 shadow-card overflow-hidden">
