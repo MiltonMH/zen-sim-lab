@@ -164,7 +164,7 @@ export default function SimulationRunner({
 
 /* ============================ SINGLE MODE ============================ */
 function SingleMode({ households, bounds, preselectedHouseholdId }: { households: Household[]; bounds: { min: Date; max: Date } | null; preselectedHouseholdId?: string }) {
-  const [mode, setMode] = useState("price");
+  const [mode, setMode] = useState<string>("smart_charge");
   const [scenarios, setScenarios] = useState([10]);
   const [range, setRange] = useState<DateRange | undefined>(undefined);
   const [householdId, setHouseholdId] = useState<string>(preselectedHouseholdId ?? "");
@@ -290,7 +290,7 @@ function BulkMode({ households, evMap, bounds }: {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [sameSettings, setSameSettings] = useState(true);
   const [sharedRange, setSharedRange] = useState<DateRange | undefined>(undefined);
-  const [sharedMode, setSharedMode] = useState("price");
+  const [sharedMode, setSharedMode] = useState<string>("smart_charge");
   const [sharedScenarios, setSharedScenarios] = useState([10]);
   const [perCfg, setPerCfg] = useState<Record<string, PerHouseholdConfig>>({});
   const [running, setRunning] = useState(false);
