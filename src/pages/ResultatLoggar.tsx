@@ -429,6 +429,7 @@ function PerHouseholdTab({
         );
       })}
     </div>
+    </div>
   );
 }
 
