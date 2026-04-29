@@ -368,11 +368,11 @@ export default function Households() {
         </div>
       )}
 
-      <Sheet open={open} onOpenChange={setOpen}>
+      <Sheet open={open} onOpenChange={(o) => { setOpen(o); if (!o) resetForm(); }}>
         <SheetContent className="sm:max-w-lg overflow-y-auto">
           <SheetHeader>
-            <SheetTitle>New household</SheetTitle>
-            <SheetDescription>Define a virtual household profile.</SheetDescription>
+            <SheetTitle>{editId ? "Redigera hushåll" : "New household"}</SheetTitle>
+            <SheetDescription>{editId ? "Uppdatera hushållsprofilen." : "Define a virtual household profile."}</SheetDescription>
           </SheetHeader>
 
           <form onSubmit={handleSubmit} className="space-y-5 mt-6 pb-10">
