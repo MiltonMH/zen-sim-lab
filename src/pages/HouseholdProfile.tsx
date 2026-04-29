@@ -39,6 +39,7 @@ interface HouseholdFull {
   house_type: string | null;
   area_m2: number | null;
   price_area: string | null;
+  grid_company: string | null;
   heating_type: string | null;
   routine_type: string | null;
   commuter_type: string | null;
