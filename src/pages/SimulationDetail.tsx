@@ -169,20 +169,27 @@ Beslut loggade: ${logs.length}`;
 
       {/* Logs */}
       <Card className="rounded-2xl border-border/60 shadow-card overflow-hidden">
-        <div className="px-6 py-4 border-b border-border/60">
+        <div className="px-6 py-4 border-b border-border/60 flex items-center justify-between gap-3 flex-wrap">
           <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Optimeringslogg ({logs.length})</h3>
+          {logs.length > PAGE_SIZE && (
+            <div className="flex items-center gap-2 text-xs">
+              <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => Math.max(0, p - 1))}>Föregående</Button>
+              <span className="text-muted-foreground">Sida {page + 1} / {Math.ceil(logs.length / PAGE_SIZE)}</span>
+              <Button variant="outline" size="sm" disabled={(page + 1) * PAGE_SIZE >= logs.length} onClick={() => setPage(p => p + 1)}>Nästa</Button>
+            </div>
+          )}
         </div>
-        <div className="max-h-[600px] overflow-auto">
+        <div className="overflow-auto">
           <Table>
             <TableHeader className="sticky top-0 bg-background z-10">
               <TableRow className="bg-muted/40">
-                {["Hour","Decision","Spot","SoC","House kW","Grid kW","V2H SEK","Score","Reason"].map(h =>
+                {["Tidpunkt","Beslut","Spotpris","SoC%","Hus kW","Nät kW","V2H SEK","Poäng","Anledning"].map(h =>
                   <TableHead key={h} className="text-xs uppercase tracking-wider font-medium">{h}</TableHead>
                 )}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {logs.map(l => {
+              {logs.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map(l => {
                 const style = decisionStyles[l.decision] ?? decisionStyles.pause;
                 return (
                   <TableRow key={l.id} className={cn(style.row)}>
@@ -203,6 +210,33 @@ Beslut loggade: ${logs.length}`;
         </div>
       </Card>
     </div>
+  );
+}
+
+function SavingsBreakdownBar({ price, v2h }: { price: number; v2h: number }) {
+  const total = Math.max(0.0001, price + v2h);
+  const pricePct = (Math.max(0, price) / total) * 100;
+  const v2hPct = (Math.max(0, v2h) / total) * 100;
+  return (
+    <Card className="rounded-2xl border-border/60 shadow-card p-6">
+      <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">Besparingsfördelning</h3>
+      <div className="flex h-10 w-full overflow-hidden rounded-full bg-muted">
+        {pricePct > 0 && (
+          <div className="flex items-center justify-center text-[11px] font-semibold text-white" style={{ width: `${pricePct}%`, background: "hsl(172, 66%, 34%)" }}>
+            {pricePct > 12 && `${price.toFixed(2)} SEK`}
+          </div>
+        )}
+        {v2hPct > 0 && (
+          <div className="flex items-center justify-center text-[11px] font-semibold text-white" style={{ width: `${v2hPct}%`, background: "hsl(199, 89%, 48%)" }}>
+            {v2hPct > 12 && `${v2h.toFixed(2)} SEK`}
+          </div>
+        )}
+      </div>
+      <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full" style={{ background: "hsl(172, 66%, 34%)" }} /> Prisoptimering · {price.toFixed(2)} SEK ({pricePct.toFixed(0)}%)</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full" style={{ background: "hsl(199, 89%, 48%)" }} /> V2H · {v2h.toFixed(2)} SEK ({v2hPct.toFixed(0)}%)</span>
+      </div>
+    </Card>
   );
 }
 
