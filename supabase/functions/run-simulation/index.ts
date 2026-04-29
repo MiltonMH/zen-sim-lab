@@ -177,7 +177,24 @@ Deno.serve(async (req) => {
     let soc = startingSoc;
 
     const logsBatch: Array<Record<string, unknown>> = [];
+    const eventsBatch: Array<Record<string, unknown>> = [];
     const sortedDays = Array.from(byDay.keys()).sort();
+
+    const leaveTime = Number(hh.leave_time ?? 7);
+    const returnTime = Number(hh.return_time ?? 17);
+
+    let prevDecision: string | null = null;
+    let prevPriceCheap = false;
+    let prevPriceExpensive = false;
+    const cableDaysSeen = new Set<string>();
+
+    function pushEvent(e: Record<string, unknown>) {
+      eventsBatch.push({
+        simulation_id,
+        household_id: sim.household_id,
+        ...e,
+      });
+    }
 
     for (const day of sortedDays) {
       const dayHours = byDay.get(day)!;
@@ -305,6 +322,104 @@ Deno.serve(async (req) => {
           total_cost_per_kwh: Number(totalCostPerKwh.toFixed(4)),
         });
         decisionsLogged++;
+
+        // ---- Event detection ----
+        const socNow = Number(soc.toFixed(2));
+
+        if (h.hourOfDay === leaveTime && !cableDaysSeen.has(`${day}-leave`)) {
+          cableDaysSeen.add(`${day}-leave`);
+          pushEvent({
+            occurred_at: h.iso,
+            event_type: "cable_disconnected",
+            value_soc_pct: socNow,
+            reason: "Kunden lämnade hemmet",
+          });
+        }
+        if (h.hourOfDay === returnTime && !cableDaysSeen.has(`${day}-return`)) {
+          cableDaysSeen.add(`${day}-return`);
+          pushEvent({
+            occurred_at: h.iso,
+            event_type: "cable_connected",
+            value_soc_pct: socNow,
+            reason: "Kunden kom hem",
+          });
+        }
+
+        const isCheap = h.price < TOO_CHEAP_PRICE;
+        const isExpensive = h.price > priceThreshold;
+        if (isCheap && !prevPriceCheap) {
+          pushEvent({
+            occurred_at: h.iso,
+            event_type: "cheap_price_detected",
+            value_price_sek: h.price,
+            reason: `Extremt lågt pris: ${h.price.toFixed(3)} SEK/kWh`,
+          });
+        }
+        if (isExpensive && !prevPriceExpensive) {
+          pushEvent({
+            occurred_at: h.iso,
+            event_type: "expensive_price_detected",
+            value_price_sek: h.price,
+            reason: `Högt pris: ${h.price.toFixed(3)} SEK/kWh`,
+          });
+        }
+        prevPriceCheap = isCheap;
+        prevPriceExpensive = isExpensive;
+
+        if (prevDecision !== decision) {
+          if (decision === "emergency_charge") {
+            pushEvent({
+              occurred_at: h.iso,
+              event_type: "emergency_charge_started",
+              value_kw: CHARGE_KW,
+              value_soc_pct: socNow,
+              value_price_sek: h.price,
+              reason: `SoC kritiskt låg: ${socNow}%`,
+            });
+          } else if (prevDecision !== "charge" && decision === "charge") {
+            pushEvent({
+              occurred_at: h.iso,
+              event_type: "charging_started",
+              value_kw: CHARGE_KW,
+              value_soc_pct: socNow,
+              value_price_sek: h.price,
+              reason: `Spotpris ${h.price.toFixed(3)} SEK/kWh — under tröskel`,
+            });
+          } else if ((prevDecision === "charge" || prevDecision === "emergency_charge") && decision === "pause") {
+            let stopReason = "Schema: topptimme undviken";
+            if (h.price > priceThreshold) stopReason = `Spotpris för högt: ${h.price.toFixed(3)} SEK/kWh`;
+            else if (soc > SOC_PROTECT) stopReason = `Batteri fullt: ${socNow}%`;
+            pushEvent({
+              occurred_at: h.iso,
+              event_type: "charging_stopped",
+              value_kw: 0,
+              value_soc_pct: socNow,
+              value_price_sek: h.price,
+              reason: stopReason,
+            });
+          } else if (prevDecision !== "v2h" && decision === "v2h") {
+            pushEvent({
+              occurred_at: h.iso,
+              event_type: "v2h_started",
+              value_kw: -V2H_KW,
+              value_soc_pct: socNow,
+              value_price_sek: h.price,
+              value_sek_impact: Number((V2H_KW * h.price).toFixed(2)),
+              reason: `Topptimme ${h.hourOfDay}:00 — V2H aktiverad`,
+            });
+          } else if (prevDecision === "v2h" && decision !== "v2h") {
+            const stopReason = soc <= minSoc + 1
+              ? `SoC nådde minimigräns: ${socNow}%`
+              : "Topptimme avslutad";
+            pushEvent({
+              occurred_at: h.iso,
+              event_type: "v2h_stopped",
+              value_soc_pct: socNow,
+              reason: stopReason,
+            });
+          }
+          prevDecision = decision;
+        }
       }
 
       totalKwhCharged += dayKwhCharged;
@@ -326,6 +441,16 @@ Deno.serve(async (req) => {
       if (lErr) console.error("log insert error", lErr.message);
     }
 
+    // Clear and insert events for this simulation (scenario 1 clears the window)
+    if ((sim.scenario_number ?? 1) === 1) {
+      await supabase.from("simulation_events").delete().eq("simulation_id", simulation_id);
+    }
+    for (let i = 0; i < eventsBatch.length; i += 500) {
+      const chunk = eventsBatch.slice(i, i + 500);
+      const { error: eErr } = await supabase.from("simulation_events").insert(chunk);
+      if (eErr) console.error("event insert error", eErr.message);
+    }
+
     const priceSavings = totalCostBaseline - totalCostOptimized;
     const totalSaved = priceSavings + totalV2hSavingSek;
     const savingsIncludingTariff = (totalCostBaselineWithTariff - totalCostWithTariff) + totalV2hSavingSek * VAT_MULTIPLIER;
@@ -341,6 +466,7 @@ Deno.serve(async (req) => {
       avg_price_paid: Number(avgPricePaid.toFixed(4)),
       total_cost_with_tariff: round2(totalCostWithTariff),
       total_saved_including_tariff: round2(savingsIncludingTariff),
+      total_events: eventsBatch.length,
       ended_at: new Date().toISOString(),
     }).eq("id", simulation_id);
 
@@ -357,6 +483,7 @@ Deno.serve(async (req) => {
       total_saved_including_tariff: round2(savingsIncludingTariff),
       v2x_capable: v2xCapable,
       decisions_logged: decisionsLogged,
+      events_logged: eventsBatch.length,
     }, 200);
   } catch (err) {
     console.error("run-simulation error", err);

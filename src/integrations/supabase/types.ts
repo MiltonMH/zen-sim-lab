@@ -381,6 +381,66 @@ export type Database = {
           },
         ]
       }
+      simulation_events: {
+        Row: {
+          created_at: string
+          event_type: string
+          household_id: string | null
+          id: string
+          metadata: Json | null
+          occurred_at: string
+          reason: string | null
+          simulation_id: string | null
+          value_kw: number | null
+          value_price_sek: number | null
+          value_sek_impact: number | null
+          value_soc_pct: number | null
+        }
+        Insert: {
+          created_at?: string
+          event_type: string
+          household_id?: string | null
+          id?: string
+          metadata?: Json | null
+          occurred_at: string
+          reason?: string | null
+          simulation_id?: string | null
+          value_kw?: number | null
+          value_price_sek?: number | null
+          value_sek_impact?: number | null
+          value_soc_pct?: number | null
+        }
+        Update: {
+          created_at?: string
+          event_type?: string
+          household_id?: string | null
+          id?: string
+          metadata?: Json | null
+          occurred_at?: string
+          reason?: string | null
+          simulation_id?: string | null
+          value_kw?: number | null
+          value_price_sek?: number | null
+          value_sek_impact?: number | null
+          value_soc_pct?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "simulation_events_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "household_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "simulation_events_simulation_id_fkey"
+            columns: ["simulation_id"]
+            isOneToOne: false
+            referencedRelation: "simulation_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       simulation_runs: {
         Row: {
           avg_price_paid: number | null
@@ -398,6 +458,7 @@ export type Database = {
           started_at: string | null
           status: string | null
           total_cost_with_tariff: number | null
+          total_events: number
           total_saved_including_tariff: number | null
           total_saved_sek: number | null
           total_v2h_kwh: number | null
@@ -419,6 +480,7 @@ export type Database = {
           started_at?: string | null
           status?: string | null
           total_cost_with_tariff?: number | null
+          total_events?: number
           total_saved_including_tariff?: number | null
           total_saved_sek?: number | null
           total_v2h_kwh?: number | null
@@ -440,6 +502,7 @@ export type Database = {
           started_at?: string | null
           status?: string | null
           total_cost_with_tariff?: number | null
+          total_events?: number
           total_saved_including_tariff?: number | null
           total_saved_sek?: number | null
           total_v2h_kwh?: number | null
