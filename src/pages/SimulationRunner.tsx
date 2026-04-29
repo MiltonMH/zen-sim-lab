@@ -36,15 +36,31 @@ interface RunResult {
 export default function SimulationRunner() {
   const [mode, setMode] = useState("price");
   const [scenarios, setScenarios] = useState([10]);
-  const [range, setRange] = useState<DateRange | undefined>({ from: new Date("2025-12-01"), to: new Date("2025-12-31") });
+  const [range, setRange] = useState<DateRange | undefined>(undefined);
   const [households, setHouseholds] = useState<{ id: string; name: string }[]>([]);
   const [householdId, setHouseholdId] = useState<string>("");
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<{ res: RunResult; householdName: string } | null>(null);
+  const [bounds, setBounds] = useState<{ min: Date; max: Date } | null>(null);
 
   useEffect(() => {
     supabase.from("household_profiles").select("id, name").order("created_at", { ascending: false })
       .then(({ data }) => setHouseholds(data ?? []));
+
+    // Fetch min/max available spot price dates
+    (async () => {
+      const [{ data: minRow }, { data: maxRow }] = await Promise.all([
+        supabase.from("spot_prices").select("hour").order("hour", { ascending: true }).limit(1).maybeSingle(),
+        supabase.from("spot_prices").select("hour").order("hour", { ascending: false }).limit(1).maybeSingle(),
+      ]);
+      if (!minRow?.hour || !maxRow?.hour) return;
+      const min = new Date(minRow.hour);
+      const max = new Date(maxRow.hour);
+      setBounds({ min, max });
+      // Default: last 30 days within available data
+      const from = subDays(max, 30);
+      setRange({ from: from < min ? min : from, to: max });
+    })();
   }, []);
 
   const handleRun = async () => {
@@ -112,9 +128,22 @@ export default function SimulationRunner() {
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0" align="start">
-              <Calendar mode="range" selected={range} onSelect={setRange} numberOfMonths={2} className="p-3 pointer-events-auto" />
+              <Calendar
+                mode="range"
+                selected={range}
+                onSelect={setRange}
+                numberOfMonths={2}
+                defaultMonth={bounds?.max ?? undefined}
+                disabled={bounds ? { before: bounds.min, after: bounds.max } : undefined}
+                className="p-3 pointer-events-auto"
+              />
             </PopoverContent>
           </Popover>
+          <p className="text-xs text-muted-foreground mt-2">
+            {bounds
+              ? `Prisdata tillgänglig: ${format(bounds.min, "yyyy-MM-dd")} – ${format(bounds.max, "yyyy-MM-dd")}`
+              : "Laddar tillgängligt datumintervall…"}
+          </p>
         </Section>
 
         <Section title="Optimization mode">
