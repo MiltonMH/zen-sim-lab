@@ -108,7 +108,7 @@ function AllSimsTab({
       const fetchAll = async (table: "simulation_events" | "optimization_logs", column: string, ids: string[]) => {
         const rows: any[] = [];
         for (const ch of chunk(ids)) {
-          const { data } = await supabase.from(table).select("*").in(column, ch);
+          const { data } = await (supabase as any).from(table).select("*").in(column, ch);
           if (data) rows.push(...(data as any[]));
         }
         return rows;
