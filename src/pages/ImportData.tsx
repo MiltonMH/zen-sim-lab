@@ -15,7 +15,7 @@ interface ElpriceRecord {
 }
 
 const PRICE_AREA = "SE3";
-const YEAR = 2024;
+const YEAR_OPTIONS = [2024, 2025] as const;
 
 type Phase = "idle" | "importing" | "done" | "error";
 
