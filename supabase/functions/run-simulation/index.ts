@@ -647,6 +647,7 @@ Deno.serve(async (req) => {
       total_cost_with_tariff: round2(totalCostWithTariff),
       total_saved_including_tariff: round2(savingsIncludingTariff),
       total_events: eventsBatch.length,
+      warnings: Object.keys(warnings).length > 0 ? warnings : null,
       ended_at: new Date().toISOString(),
     }).eq("id", simulation_id);
 
