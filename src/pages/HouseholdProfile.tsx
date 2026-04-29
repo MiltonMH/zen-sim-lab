@@ -117,7 +117,7 @@ export default function HouseholdProfile({
       setLoading(true);
       const { data: hhData } = await supabase
         .from("household_profiles")
-        .select("id, name, house_type, area_m2, price_area, heating_type, routine_type, commuter_type, car_model, battery_kwh, ev_model_id")
+        .select("id, name, house_type, area_m2, price_area, grid_company, heating_type, routine_type, commuter_type, car_model, battery_kwh, ev_model_id")
         .eq("id", householdId)
         .maybeSingle();
       if (cancel) return;
