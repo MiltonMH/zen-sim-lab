@@ -510,6 +510,7 @@ export type Database = {
           total_saved_sek: number | null
           total_v2h_kwh: number | null
           total_v2h_saving_sek: number | null
+          warnings: Json | null
         }
         Insert: {
           avg_price_paid?: number | null
@@ -534,6 +535,7 @@ export type Database = {
           total_saved_sek?: number | null
           total_v2h_kwh?: number | null
           total_v2h_saving_sek?: number | null
+          warnings?: Json | null
         }
         Update: {
           avg_price_paid?: number | null
@@ -558,6 +560,7 @@ export type Database = {
           total_saved_sek?: number | null
           total_v2h_kwh?: number | null
           total_v2h_saving_sek?: number | null
+          warnings?: Json | null
         }
         Relationships: [
           {
