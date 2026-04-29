@@ -14,7 +14,17 @@ interface SimRun {
 interface OptLog {
   id: string; household_id: string; logged_at: string; decision: string;
   spot_price_sek: number | null; soc_pct: number | null; reason: string | null;
+  charge_kw: number | null; house_consumption_kw: number | null;
+  grid_draw_kw: number | null; v2h_saving_sek: number | null; combined_score: number | null;
 }
+
+const decisionStyles: Record<string, { row: string; pill: string; label: string }> = {
+  charge:            { row: "bg-emerald-500/5 hover:bg-emerald-500/10", pill: "bg-emerald-500/15 text-emerald-700", label: "Charge" },
+  v2h:               { row: "bg-sky-500/5 hover:bg-sky-500/10",         pill: "bg-sky-500/15 text-sky-700",         label: "V2H" },
+  v2g:               { row: "bg-purple-500/5 hover:bg-purple-500/10",   pill: "bg-purple-500/15 text-purple-700",   label: "V2G" },
+  pause:             { row: "bg-muted/30 hover:bg-muted/50",            pill: "bg-muted-foreground/10 text-muted-foreground", label: "Pause" },
+  emergency_charge:  { row: "bg-red-500/5 hover:bg-red-500/10",         pill: "bg-red-500/15 text-red-700",         label: "Emergency" },
+};
 
 export default function Results() {
   const [runs, setRuns] = useState<SimRun[]>([]);
