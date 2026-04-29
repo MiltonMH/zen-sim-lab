@@ -565,7 +565,7 @@ export default function ResultatLoggar({
           .limit(500),
         supabase
           .from("household_profiles")
-          .select("id, name, house_type, area_m2, price_area, heating_type, car_model, battery_kwh, ev_model_id")
+          .select("id, name, house_type, area_m2, price_area, heating_type, car_model, battery_kwh, ev_model_id, household_type")
           .order("name"),
         supabase.from("ev_models").select("id, brand, model, battery_kwh, ccs2_port"),
       ]);
@@ -573,7 +573,7 @@ export default function ResultatLoggar({
       const hhRows = (hhData ?? []) as Array<HouseholdRow & {
         house_type: string | null; area_m2: number | null; price_area: string | null;
         heating_type: string | null; car_model: string | null; battery_kwh: number | null;
-        ev_model_id: string | null;
+        ev_model_id: string | null; household_type: string | null;
       }>;
       setHouseholds(hhRows.map((h) => ({ id: h.id, name: h.name })));
       const evMap = new Map<string, { brand: string; model: string; battery_kwh: number; ccs2_port: boolean }>();
@@ -593,6 +593,7 @@ export default function ResultatLoggar({
           ev_model: ev?.model ?? null,
           ev_battery: ev?.battery_kwh ?? null,
           ccs2_port: ev?.ccs2_port !== false,
+          household_type: h.household_type,
         };
       }));
     })();
