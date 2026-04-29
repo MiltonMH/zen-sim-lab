@@ -97,27 +97,30 @@ Deno.serve(async (req) => {
       const avgPrice =
         dayPrices.reduce((s, p) => s + Number(p.price_sek_kwh), 0) / dayPrices.length;
 
-      // Baseline cost = same daily kWh, charged at average price
-      totalCostBaseline += dailyKwhNeeded * avgPrice;
+      // Average price across the cheapest charge hours
+      const cheapPrices = ranked.slice(0, CHEAPEST_HOURS).map(r => Number(r.price_sek_kwh));
+      const avgCheapPrice = cheapPrices.reduce((s, p) => s + p, 0) / Math.max(1, cheapPrices.length);
 
-      // Per-hour SoC step (% per hour)
-      const socStepCharge = (CHARGE_KW / batteryKwh) * 100; // adds to SoC
-      // discharge spread evenly over the 16 non-charging hours
-      const dischargePerNonChargeHour = dailyKwhNeeded / (24 - CHEAPEST_HOURS);
-      const socStepDischarge = (dischargePerNonChargeHour / batteryKwh) * 100;
+      // Cost for the day = same energy need, charged at optimized vs baseline price
+      const dayOptimized = dailyKwhNeeded * avgCheapPrice;
+      const dayBaseline = dailyKwhNeeded * avgPrice;
+      totalCostOptimized += dayOptimized;
+      totalCostBaseline += dayBaseline;
+      totalKwhCharged += dailyKwhNeeded;
+
+      // SoC simulation: charge during cheap hours, discharge spread over the rest
+      const chargePerHour = dailyKwhNeeded / CHEAPEST_HOURS;
+      const dischargePerHour = dailyKwhNeeded / (24 - CHEAPEST_HOURS);
+      const socStepCharge = (chargePerHour / batteryKwh) * 100;
+      const socStepDischarge = (dischargePerHour / batteryKwh) * 100;
 
       for (let i = 0; i < dayPrices.length; i++) {
         const p = dayPrices[i];
         const price = Number(p.price_sek_kwh);
         const isCharge = chargeIdx.has(i);
 
-        if (isCharge) {
-          totalKwhCharged += CHARGE_KW;
-          totalCostOptimized += CHARGE_KW * price;
-          soc = Math.min(100, soc + socStepCharge);
-        } else {
-          soc = Math.max(0, soc - socStepDischarge);
-        }
+        if (isCharge) soc = Math.min(100, soc + socStepCharge);
+        else soc = Math.max(0, soc - socStepDischarge);
 
         logsBatch.push({
           household_id: sim.household_id,
