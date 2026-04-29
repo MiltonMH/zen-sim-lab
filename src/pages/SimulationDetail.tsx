@@ -48,7 +48,7 @@ export default function SimulationDetail({ simulationId, onBack }: Props) {
         const fromIso = `${s.period_from}T00:00:00+00:00`;
         const toIso = `${s.period_to}T23:59:59+00:00`;
         const { data: l } = await supabase.from("optimization_logs").select("*")
-          .eq("household_id", s.household_id).gte("logged_at", fromIso).lte("logged_at", toIso)
+          .eq("simulation_id", simulationId).gte("logged_at", fromIso).lte("logged_at", toIso)
           .order("logged_at", { ascending: true });
         if (active) setLogs(l ?? []);
       }
