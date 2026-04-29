@@ -62,6 +62,9 @@ export default function Households() {
   const [saving, setSaving] = useState(false);
   const [evPickerOpen, setEvPickerOpen] = useState(false);
   const [annualOverride, setAnnualOverride] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Household | null>(null);
 
   const [form, setForm] = useState({
     name: "",
