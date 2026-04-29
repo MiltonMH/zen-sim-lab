@@ -325,6 +325,7 @@ Deno.serve(async (req) => {
         }
 
         logsBatch.push({
+          simulation_id,
           household_id: sim.household_id,
           logged_at: h.iso,
           decision,
