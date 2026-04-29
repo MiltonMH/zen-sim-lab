@@ -58,6 +58,38 @@ export type Database = {
           },
         ]
       }
+      consumption_profiles: {
+        Row: {
+          created_at: string
+          hour: number
+          household_id: string
+          id: string
+          weight: number
+        }
+        Insert: {
+          created_at?: string
+          hour: number
+          household_id: string
+          id?: string
+          weight?: number
+        }
+        Update: {
+          created_at?: string
+          hour?: number
+          household_id?: string
+          id?: string
+          weight?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "consumption_profiles_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "household_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ev_models: {
         Row: {
           battery_kwh: number
@@ -126,46 +158,91 @@ export type Database = {
       }
       household_profiles: {
         Row: {
+          adults: number | null
+          annual_kwh: number | null
           area_m2: number | null
           battery_kwh: number | null
+          build_year: number | null
           car_model: string | null
+          children: number | null
+          children_ages: string | null
           commuter_type: string | null
           created_at: string | null
           daily_km: number | null
           ev_model_id: string | null
           grid_company: string | null
+          has_solar_panels: boolean | null
+          heating_type: string | null
+          home_during_day: boolean | null
           house_type: string
           id: string
+          insulation_quality: string | null
+          leave_time: number | null
           name: string
           price_area: string | null
+          return_time: number | null
+          routine_type: string | null
+          sleep_time: number | null
+          solar_kwh_per_year: number | null
+          wake_time: number | null
         }
         Insert: {
+          adults?: number | null
+          annual_kwh?: number | null
           area_m2?: number | null
           battery_kwh?: number | null
+          build_year?: number | null
           car_model?: string | null
+          children?: number | null
+          children_ages?: string | null
           commuter_type?: string | null
           created_at?: string | null
           daily_km?: number | null
           ev_model_id?: string | null
           grid_company?: string | null
+          has_solar_panels?: boolean | null
+          heating_type?: string | null
+          home_during_day?: boolean | null
           house_type?: string
           id?: string
+          insulation_quality?: string | null
+          leave_time?: number | null
           name: string
           price_area?: string | null
+          return_time?: number | null
+          routine_type?: string | null
+          sleep_time?: number | null
+          solar_kwh_per_year?: number | null
+          wake_time?: number | null
         }
         Update: {
+          adults?: number | null
+          annual_kwh?: number | null
           area_m2?: number | null
           battery_kwh?: number | null
+          build_year?: number | null
           car_model?: string | null
+          children?: number | null
+          children_ages?: string | null
           commuter_type?: string | null
           created_at?: string | null
           daily_km?: number | null
           ev_model_id?: string | null
           grid_company?: string | null
+          has_solar_panels?: boolean | null
+          heating_type?: string | null
+          home_during_day?: boolean | null
           house_type?: string
           id?: string
+          insulation_quality?: string | null
+          leave_time?: number | null
           name?: string
           price_area?: string | null
+          return_time?: number | null
+          routine_type?: string | null
+          sleep_time?: number | null
+          solar_kwh_per_year?: number | null
+          wake_time?: number | null
         }
         Relationships: [
           {
