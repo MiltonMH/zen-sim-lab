@@ -28,11 +28,13 @@ const DC_EFFICIENCY = 0.95;       // both directions
 // V2H aktiveringströsklar per prisområde (SEK/kWh)
 // SE1/SE2 har lägre snittpriser → lägre tröskel så V2H faktiskt används
 const V2H_THRESHOLDS: Record<string, number> = {
-  SE1: 0.45,
-  SE2: 0.60,
+  SE1: 0.25,
+  SE2: 0.50,
   SE3: 0.80,
-  SE4: 0.70,
+  SE4: 0.65,
 };
+// V2H kräver också att aktuellt pris ligger minst X% över dagens snittpris
+const V2H_DAILY_SPREAD_MULTIPLIER = 1.3;
 
 // Default consumption weights (pendlare style) if profile missing
 const DEFAULT_WEIGHTS = [
@@ -266,6 +268,7 @@ Deno.serve(async (req) => {
       const monthKey = day.slice(0, 7); // YYYY-MM
 
       const maxPrice = Math.max(...dayHours.map(h => h.price));
+      const dailyAvgPrice = dayHours.reduce((s, h) => s + h.price, 0) / dayHours.length;
       const maxWeight = Math.max(...dayHours.map(h => h.weight));
 
       const scored = dayHours.map((h, idx) => {
@@ -327,8 +330,10 @@ Deno.serve(async (req) => {
         // Smart V2H decision: scale power by spot price
         // Tröskel beror på prisområde (SE1 har lägre snittpriser än SE3/SE4)
         const v2hMinPrice = V2H_THRESHOLDS[priceArea] ?? V2H_THRESHOLDS.SE3;
+        const v2hSpreadOk = h.price > dailyAvgPrice * V2H_DAILY_SPREAD_MULTIPLIER;
         const smartV2hKw = (() => {
           if (h.price <= v2hMinPrice) return 0;
+          if (!v2hSpreadOk) return 0; // dagens prisspridning är för liten
           // Skala effekt linjärt från låg → hög utöver tröskeln
           const over = h.price - v2hMinPrice;
           if (over > 1.2) return v2hMaxKw;                    // full uteffekt
@@ -381,6 +386,7 @@ Deno.serve(async (req) => {
           v2hAllowed && mode === "smart_charge" &&
           PEAK_HOURS.has(h.hourOfDay) &&
           h.price > 1.0 &&
+          h.price > dailyAvgPrice * V2H_DAILY_SPREAD_MULTIPLIER &&
           soc > 40
         ) {
           const dischargeKw = Math.min(7, v2hMaxKw, hourConsKw + 7);
