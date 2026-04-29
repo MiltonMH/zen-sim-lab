@@ -6,7 +6,7 @@ import Login from "@/pages/Login";
 import Overview from "@/pages/Overview";
 import Data from "@/pages/Data";
 import ImportData from "@/pages/ImportData";
-import SimulationRunner from "@/pages/SimulationRunner";
+import Simulering from "@/pages/Simulering";
 import Results from "@/pages/Results";
 
 type View = "overview" | "data" | "simulering" | "resultat";
