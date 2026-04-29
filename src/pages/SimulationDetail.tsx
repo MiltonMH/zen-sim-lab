@@ -140,6 +140,12 @@ Beslut loggade: ${logs.length}`;
         </div>
       </Card>
 
+      {/* Savings breakdown stacked bar */}
+      <SavingsBreakdownBar
+        price={Number(sim.price_savings_sek ?? Math.max(0, Number(sim.total_saved_sek ?? 0) - Number(sim.total_v2h_saving_sek ?? 0)))}
+        v2h={Number(sim.total_v2h_saving_sek ?? 0)}
+      />
+
       {/* Chart */}
       <Card className="rounded-2xl border-border/60 shadow-card p-6">
         <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-4">Spotpris vs laddningsbeslut</h3>
@@ -152,6 +158,7 @@ Beslut loggade: ${logs.length}`;
               <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10 }} label={{ value: "kW", angle: 90, position: "insideRight", style: { fontSize: 10 } }} />
               <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
+              <ReferenceLine yAxisId="left" y={1.0} stroke="hsl(0, 72%, 51%)" strokeDasharray="4 4" label={{ value: "1.0 SEK/kWh", fontSize: 10, fill: "hsl(0, 72%, 51%)" }} />
               <Bar yAxisId="right" dataKey="charge" name="Charge kW" fill="hsl(172, 66%, 34%)" />
               <Bar yAxisId="right" dataKey="v2h" name="V2H kW" fill="hsl(199, 89%, 48%)" />
               <Line yAxisId="left" type="monotone" dataKey="price" name="Spotpris" stroke="hsl(var(--muted-foreground))" dot={false} strokeWidth={1.5} />
