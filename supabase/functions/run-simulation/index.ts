@@ -55,11 +55,20 @@ Deno.serve(async (req) => {
     if (hErr || !hh) return failSim(supabase, simulation_id, "Household not found", 404);
 
     const batteryKwh = Number(hh.battery_kwh) || 60;
-    const dailyKm = Number(hh.daily_km) || 30;
+    const baseDailyKm = Number(hh.daily_km) || 30;
     const priceArea = hh.price_area || "SE3";
     const annualKwh = Number(hh.annual_kwh) || 18000;
     const avgHouseKw = annualKwh / 8760; // average house draw
 
+    // --- Scenario parameters (use stored, else defaults for scenario 1) ---
+    const sp = (sim.scenario_params ?? {}) as Record<string, number>;
+    const startingSoc = clamp(num(sp.starting_soc, 50), 5, 100);
+    const dailyKmMul = clamp(num(sp.daily_km_multiplier, 1.0), 0.1, 3.0);
+    const priceThreshold = clamp(num(sp.price_threshold, DEFAULT_HARD_MAX_PRICE), 0.5, 10);
+    const minSoc = clamp(num(sp.min_soc, DEFAULT_SOC_EMERGENCY), 5, 80);
+    // departure_offset_hours kept in params for traceability; not yet used for routing rules
+
+    const dailyKm = baseDailyKm * dailyKmMul;
     const dailyKwhNeeded = (dailyKm / KM_PER_PCT) * batteryKwh / 100;
 
     // 2b. EV V2X capability
