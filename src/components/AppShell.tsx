@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 import Login from "@/pages/Login";
 import Overview from "@/pages/Overview";
-import DataExplorer from "@/pages/DataExplorer";
+import Data from "@/pages/Data";
 import ImportData from "@/pages/ImportData";
 import SimulationRunner from "@/pages/SimulationRunner";
 import Results from "@/pages/Results";
