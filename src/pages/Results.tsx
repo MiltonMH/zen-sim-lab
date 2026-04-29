@@ -114,7 +114,7 @@ export default function Results() {
                 ) : runs.map(r => {
                   const saved = r.total_saved_sek != null ? Number(r.total_saved_sek) : null;
                   return (
-                    <TableRow key={r.id}>
+                    <TableRow key={r.id} onClick={() => setSelectedSim(r.id)} className="cursor-pointer hover:bg-muted/40 transition-colors">
                       <TableCell className="font-mono text-xs">{r.id.slice(0, 8)}</TableCell>
                       <TableCell className="text-sm">{householdMap[r.household_id] ?? "—"}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">{r.period_from} → {r.period_to}</TableCell>
