@@ -99,7 +99,8 @@ async function runOneSimulation(
 export default function SimulationRunner({
   initialMode = "single",
   preselectedHouseholdId,
-}: { initialMode?: "single" | "bulk"; preselectedHouseholdId?: string } = {}) {
+  embedded = false,
+}: { initialMode?: "single" | "bulk"; preselectedHouseholdId?: string; embedded?: boolean } = {}) {
   const [pageMode, setPageMode] = useState<"single" | "bulk">(initialMode);
   const [households, setHouseholds] = useState<Household[]>([]);
   const [evMap, setEvMap] = useState<Record<string, { v2x_capable: boolean; brand: string; model: string }>>({});
@@ -122,31 +123,35 @@ export default function SimulationRunner({
   }, []);
 
   return (
-    <div className="space-y-8">
-      <header>
-        <h1 className="text-3xl font-semibold tracking-tight">Run Simulation</h1>
-        <p className="text-muted-foreground mt-1.5 text-sm">Configure and execute a scenario batch.</p>
-      </header>
+    <div className={embedded ? "space-y-6" : "space-y-8"}>
+      {!embedded && (
+        <>
+          <header>
+            <h1 className="text-3xl font-semibold tracking-tight">Run Simulation</h1>
+            <p className="text-muted-foreground mt-1.5 text-sm">Configure and execute a scenario batch.</p>
+          </header>
 
-      <div className="flex justify-center">
-        <div className="inline-flex rounded-full bg-muted p-1">
-          {[
-            { id: "single", label: "Enskild simulering" },
-            { id: "bulk", label: "Bulk-körning" },
-          ].map(t => (
-            <button
-              key={t.id}
-              onClick={() => setPageMode(t.id as "single" | "bulk")}
-              className={cn(
-                "px-5 py-2 rounded-full text-sm font-medium transition-colors",
-                pageMode === t.id ? "bg-background shadow-soft text-foreground" : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-      </div>
+          <div className="flex justify-center">
+            <div className="inline-flex rounded-full bg-muted p-1">
+              {[
+                { id: "single", label: "Enskild simulering" },
+                { id: "bulk", label: "Bulk-körning" },
+              ].map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => setPageMode(t.id as "single" | "bulk")}
+                  className={cn(
+                    "px-5 py-2 rounded-full text-sm font-medium transition-colors",
+                    pageMode === t.id ? "bg-background shadow-soft text-foreground" : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
 
       {pageMode === "single"
         ? <SingleMode households={households} bounds={bounds} preselectedHouseholdId={preselectedHouseholdId} />
