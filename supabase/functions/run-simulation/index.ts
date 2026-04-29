@@ -177,7 +177,24 @@ Deno.serve(async (req) => {
     let soc = startingSoc;
 
     const logsBatch: Array<Record<string, unknown>> = [];
+    const eventsBatch: Array<Record<string, unknown>> = [];
     const sortedDays = Array.from(byDay.keys()).sort();
+
+    const leaveTime = Number(hh.leave_time ?? 7);
+    const returnTime = Number(hh.return_time ?? 17);
+
+    let prevDecision: string | null = null;
+    let prevPriceCheap = false;
+    let prevPriceExpensive = false;
+    const cableDaysSeen = new Set<string>();
+
+    function pushEvent(e: Record<string, unknown>) {
+      eventsBatch.push({
+        simulation_id,
+        household_id: sim.household_id,
+        ...e,
+      });
+    }
 
     for (const day of sortedDays) {
       const dayHours = byDay.get(day)!;
