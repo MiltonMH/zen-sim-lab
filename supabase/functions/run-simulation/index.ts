@@ -80,19 +80,37 @@ Deno.serve(async (req) => {
     }
     const sumWeights = weights.reduce((s, w) => s + w, 0);
 
-    // 3. Spot prices
+    // 3. Spot prices — try requested area, fall back to SE3 if missing
     const fromIso = `${sim.period_from}T00:00:00+00:00`;
     const toIso = `${sim.period_to}T23:59:59+00:00`;
-    const { data: prices, error: pErr } = await supabase
+    let usedArea = priceArea;
+    let { data: prices, error: pErr } = await supabase
       .from("spot_prices")
       .select("hour, price_sek_kwh")
       .eq("price_area", priceArea)
-      .gte("hour", fromIso)
-      .lte("hour", toIso)
+      .gte("hour", fromIso).lte("hour", toIso)
       .order("hour", { ascending: true });
     if (pErr) return failSim(supabase, simulation_id, pErr.message, 500);
     if (!prices || prices.length === 0) {
-      return failSim(supabase, simulation_id, `No spot prices found for ${priceArea} in period`, 400);
+      // Fallback to SE3 (only area with full coverage)
+      const fb = await supabase.from("spot_prices")
+        .select("hour, price_sek_kwh").eq("price_area", "SE3")
+        .gte("hour", fromIso).lte("hour", toIso)
+        .order("hour", { ascending: true });
+      prices = fb.data ?? [];
+      usedArea = "SE3";
+    }
+    if (!prices || prices.length === 0) {
+      // Find what range we DO have, to give a useful error
+      const { data: range } = await supabase
+        .from("spot_prices").select("hour").eq("price_area", "SE3")
+        .order("hour", { ascending: false }).limit(1);
+      const lastHour = range?.[0]?.hour ?? "unknown";
+      return failSim(
+        supabase, simulation_id,
+        `No spot prices for ${priceArea} between ${sim.period_from} and ${sim.period_to}. Latest available: ${lastHour}. Pick a period within available data.`,
+        400,
+      );
     }
 
     // 4. Group by local day
