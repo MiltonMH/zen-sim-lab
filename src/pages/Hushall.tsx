@@ -48,6 +48,10 @@ interface Household {
   battery_kwh: number | null;
   daily_km: number | null;
   commuter_type: string | null;
+  household_type: HouseholdType | string | null;
+  data_quality: string | null;
+  notes: string | null;
+  created_by: string | null;
 }
 
 const empty: Partial<Household> = {
