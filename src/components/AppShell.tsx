@@ -7,7 +7,7 @@ import Overview from "@/pages/Overview";
 import Data from "@/pages/Data";
 import ImportData from "@/pages/ImportData";
 import Simulering from "@/pages/Simulering";
-import Results from "@/pages/Results";
+import ResultatLoggar from "@/pages/ResultatLoggar";
 
 type View = "overview" | "data" | "simulering" | "resultat";
 
@@ -89,7 +89,13 @@ export default function AppShell() {
           />
         );
       case "resultat":
-        return <Results initialView={(params.view as "overview" | "households" | "logs" | undefined) ?? "overview"} />;
+        return (
+          <ResultatLoggar
+            initialView={(params.view as "all" | "overview" | "households" | "logs" | undefined) ?? "all"}
+            initialSimulationId={params.simulation}
+            initialHouseholdId={params.household}
+          />
+        );
       default:
         return <Overview />;
     }
