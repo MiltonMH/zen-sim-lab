@@ -126,35 +126,100 @@ export type Database = {
         }
         Relationships: []
       }
+      grid_tariff_sources: {
+        Row: {
+          active: boolean
+          api_url: string
+          company_name: string
+          created_at: string
+          id: string
+          last_fetched: string | null
+          org_number: string | null
+          price_area: string | null
+        }
+        Insert: {
+          active?: boolean
+          api_url: string
+          company_name: string
+          created_at?: string
+          id?: string
+          last_fetched?: string | null
+          org_number?: string | null
+          price_area?: string | null
+        }
+        Update: {
+          active?: boolean
+          api_url?: string
+          company_name?: string
+          created_at?: string
+          id?: string
+          last_fetched?: string | null
+          org_number?: string | null
+          price_area?: string | null
+        }
+        Relationships: []
+      }
       grid_tariffs: {
         Row: {
+          fixed_fee_sek_month: number | null
           grid_company: string
           hour_of_day: number
           id: string
           is_weekend: boolean
+          month_from: number | null
+          month_to: number | null
+          peak_fee_sek_kw: number | null
+          raw_response: Json | null
+          season: string | null
+          source_id: string | null
           tariff_sek_kwh: number
+          tariff_type: string | null
           valid_from: string
           valid_to: string | null
         }
         Insert: {
+          fixed_fee_sek_month?: number | null
           grid_company: string
           hour_of_day: number
           id?: string
           is_weekend?: boolean
+          month_from?: number | null
+          month_to?: number | null
+          peak_fee_sek_kw?: number | null
+          raw_response?: Json | null
+          season?: string | null
+          source_id?: string | null
           tariff_sek_kwh: number
+          tariff_type?: string | null
           valid_from: string
           valid_to?: string | null
         }
         Update: {
+          fixed_fee_sek_month?: number | null
           grid_company?: string
           hour_of_day?: number
           id?: string
           is_weekend?: boolean
+          month_from?: number | null
+          month_to?: number | null
+          peak_fee_sek_kw?: number | null
+          raw_response?: Json | null
+          season?: string | null
+          source_id?: string | null
           tariff_sek_kwh?: number
+          tariff_type?: string | null
           valid_from?: string
           valid_to?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "grid_tariffs_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "grid_tariff_sources"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       household_profiles: {
         Row: {
@@ -259,7 +324,9 @@ export type Database = {
           charge_kw: number | null
           combined_score: number | null
           decision: string
+          energy_tax_sek: number | null
           grid_draw_kw: number | null
+          grid_tariff_sek: number | null
           house_consumption_kw: number | null
           household_id: string | null
           id: string
@@ -267,13 +334,16 @@ export type Database = {
           reason: string | null
           soc_pct: number | null
           spot_price_sek: number | null
+          total_cost_per_kwh: number | null
           v2h_saving_sek: number | null
         }
         Insert: {
           charge_kw?: number | null
           combined_score?: number | null
           decision: string
+          energy_tax_sek?: number | null
           grid_draw_kw?: number | null
+          grid_tariff_sek?: number | null
           house_consumption_kw?: number | null
           household_id?: string | null
           id?: string
@@ -281,13 +351,16 @@ export type Database = {
           reason?: string | null
           soc_pct?: number | null
           spot_price_sek?: number | null
+          total_cost_per_kwh?: number | null
           v2h_saving_sek?: number | null
         }
         Update: {
           charge_kw?: number | null
           combined_score?: number | null
           decision?: string
+          energy_tax_sek?: number | null
           grid_draw_kw?: number | null
+          grid_tariff_sek?: number | null
           house_consumption_kw?: number | null
           household_id?: string | null
           id?: string
@@ -295,6 +368,7 @@ export type Database = {
           reason?: string | null
           soc_pct?: number | null
           spot_price_sek?: number | null
+          total_cost_per_kwh?: number | null
           v2h_saving_sek?: number | null
         }
         Relationships: [
@@ -323,6 +397,8 @@ export type Database = {
           scenarios: number | null
           started_at: string | null
           status: string | null
+          total_cost_with_tariff: number | null
+          total_saved_including_tariff: number | null
           total_saved_sek: number | null
           total_v2h_kwh: number | null
           total_v2h_saving_sek: number | null
@@ -342,6 +418,8 @@ export type Database = {
           scenarios?: number | null
           started_at?: string | null
           status?: string | null
+          total_cost_with_tariff?: number | null
+          total_saved_including_tariff?: number | null
           total_saved_sek?: number | null
           total_v2h_kwh?: number | null
           total_v2h_saving_sek?: number | null
@@ -361,6 +439,8 @@ export type Database = {
           scenarios?: number | null
           started_at?: string | null
           status?: string | null
+          total_cost_with_tariff?: number | null
+          total_saved_including_tariff?: number | null
           total_saved_sek?: number | null
           total_v2h_kwh?: number | null
           total_v2h_saving_sek?: number | null

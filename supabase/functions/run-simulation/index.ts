@@ -18,6 +18,9 @@ const DEFAULT_SOC_EMERGENCY = 20;         // force charge below this
 const SOC_PROTECT = 95;           // never charge above this
 const BASELINE_HOURS = [20, 21, 22, 23, 0, 1, 2, 3]; // unoptimized fixed window 20-04
 const PRICE_THRESHOLDS = [1.5, 2.0, 2.5];
+const ENERGY_TAX_SEK = 0.549;     // 2025 Swedish energy tax SEK/kWh
+const VAT_MULTIPLIER = 1.25;      // 25% moms
+const DEFAULT_GRID_TARIFF = 0.30; // fallback SEK/kWh when no tariff configured
 
 // Default consumption weights (pendlare style) if profile missing
 const DEFAULT_WEIGHTS = [
@@ -123,7 +126,31 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 4. Group by local day
+
+    // 3b. Grid tariffs for this household's grid_company (if any)
+    type Tariff = { hour_of_day: number; is_weekend: boolean; tariff_sek_kwh: number; month_from: number | null; month_to: number | null };
+    let tariffs: Tariff[] = [];
+    if (hh.grid_company) {
+      const { data: t } = await supabase
+        .from("grid_tariffs")
+        .select("hour_of_day, is_weekend, tariff_sek_kwh, month_from, month_to")
+        .eq("grid_company", hh.grid_company);
+      tariffs = (t ?? []) as Tariff[];
+    }
+    function lookupTariff(iso: string, hourOfDay: number): number {
+      if (tariffs.length === 0) return DEFAULT_GRID_TARIFF;
+      const d = new Date(iso);
+      const month = Number(new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Stockholm", month: "numeric" }).format(d));
+      const dow = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Stockholm", weekday: "short" }).format(d);
+      const isWeekend = dow === "Sat" || dow === "Sun";
+      const match = tariffs.find(r =>
+        r.hour_of_day === hourOfDay &&
+        r.is_weekend === isWeekend &&
+        (r.month_from == null || r.month_to == null || (month >= r.month_from && month <= r.month_to))
+      );
+      return match ? Number(match.tariff_sek_kwh) : DEFAULT_GRID_TARIFF;
+    }
+
     const byDay = new Map<string, DayHour[]>();
     for (const row of prices as SpotPrice[]) {
       const day = stockholmDay(row.hour);
@@ -139,8 +166,10 @@ Deno.serve(async (req) => {
 
     // 5. Per-day optimization
     let totalKwhCharged = 0;
-    let totalCostOptimized = 0;
-    let totalCostBaseline = 0;
+    let totalCostOptimized = 0;       // spot only (kept for backward-compatible savings calc)
+    let totalCostBaseline = 0;        // spot only baseline
+    let totalCostWithTariff = 0;      // spot + grid tariff + energy tax + VAT
+    let totalCostBaselineWithTariff = 0;
     let totalV2hKwh = 0;
     let totalV2hSavingSek = 0;
     let peakHoursAvoided = 0;
@@ -171,18 +200,23 @@ Deno.serve(async (req) => {
 
       // Baseline: fixed-window charge regardless of price
       const baselineHours = scored.filter(h => BASELINE_HOURS.includes(h.hourOfDay));
-      const baselineAvgPrice = baselineHours.length > 0
-        ? baselineHours.reduce((s, h) => s + h.price, 0) / baselineHours.length
-        : dayHours.reduce((s, h) => s + h.price, 0) / dayHours.length;
+      const baselineRef = baselineHours.length > 0 ? baselineHours : dayHours;
+      const baselineAvgPrice = baselineRef.reduce((s, h) => s + h.price, 0) / baselineRef.length;
+      const baselineAvgTariff = baselineRef.reduce((s, h) => s + lookupTariff(h.iso, h.hourOfDay), 0) / baselineRef.length;
       const dayBaselineCost = dailyKwhNeeded * baselineAvgPrice;
+      const dayBaselineCostWithTariff = dailyKwhNeeded * (baselineAvgPrice + baselineAvgTariff + ENERGY_TAX_SEK) * VAT_MULTIPLIER;
       totalCostBaseline += dayBaselineCost;
+      totalCostBaselineWithTariff += dayBaselineCostWithTariff;
 
       // Walk hours chronologically
       let dayKwhCharged = 0;
       let dayChargeCost = 0;
+      let dayChargeCostWithTariff = 0;
 
       for (const h of scored) {
         const hourConsKw = avgHouseKw * (h.weight / (sumWeights / 24));
+        const gridTariffSek = lookupTariff(h.iso, h.hourOfDay);
+        const totalCostPerKwh = (h.price + gridTariffSek + ENERGY_TAX_SEK) * VAT_MULTIPLIER;
         let decision: "charge" | "pause" | "v2h" | "emergency_charge" = "pause";
         let reason = "no_action";
         let chargeKw = 0;
@@ -244,6 +278,7 @@ Deno.serve(async (req) => {
           soc = Math.min(100, soc + (kwh / batteryKwh) * 100);
           dayKwhCharged += kwh;
           dayChargeCost += kwh * h.price;
+          dayChargeCostWithTariff += kwh * totalCostPerKwh;
           gridDrawKw = CHARGE_KW + hourConsKw;
         } else if (decision === "v2h") {
           soc = Math.max(0, soc - (V2H_KW / batteryKwh) * 100);
@@ -265,12 +300,16 @@ Deno.serve(async (req) => {
           grid_draw_kw: Number(gridDrawKw.toFixed(3)),
           v2h_saving_sek: Number(v2hSaving.toFixed(4)),
           combined_score: Number(h.combined.toFixed(4)),
+          grid_tariff_sek: Number(gridTariffSek.toFixed(4)),
+          energy_tax_sek: ENERGY_TAX_SEK,
+          total_cost_per_kwh: Number(totalCostPerKwh.toFixed(4)),
         });
         decisionsLogged++;
       }
 
       totalKwhCharged += dayKwhCharged;
       totalCostOptimized += dayChargeCost;
+      totalCostWithTariff += dayChargeCostWithTariff;
     }
 
     // Only the first scenario clears prior logs in the window;
@@ -289,6 +328,7 @@ Deno.serve(async (req) => {
 
     const priceSavings = totalCostBaseline - totalCostOptimized;
     const totalSaved = priceSavings + totalV2hSavingSek;
+    const savingsIncludingTariff = (totalCostBaselineWithTariff - totalCostWithTariff) + totalV2hSavingSek * VAT_MULTIPLIER;
     const avgPricePaid = totalKwhCharged > 0 ? totalCostOptimized / totalKwhCharged : 0;
 
     await supabase.from("simulation_runs").update({
@@ -299,6 +339,8 @@ Deno.serve(async (req) => {
       total_v2h_saving_sek: round2(totalV2hSavingSek),
       peak_hours_avoided: peakHoursAvoided,
       avg_price_paid: Number(avgPricePaid.toFixed(4)),
+      total_cost_with_tariff: round2(totalCostWithTariff),
+      total_saved_including_tariff: round2(savingsIncludingTariff),
       ended_at: new Date().toISOString(),
     }).eq("id", simulation_id);
 
@@ -311,6 +353,8 @@ Deno.serve(async (req) => {
       total_v2h_saving_sek: round2(totalV2hSavingSek),
       peak_hours_avoided: peakHoursAvoided,
       avg_price_paid: Number(avgPricePaid.toFixed(4)),
+      total_cost_with_tariff: round2(totalCostWithTariff),
+      total_saved_including_tariff: round2(savingsIncludingTariff),
       v2x_capable: v2xCapable,
       decisions_logged: decisionsLogged,
     }, 200);
