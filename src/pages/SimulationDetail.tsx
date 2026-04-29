@@ -13,6 +13,7 @@ import {
   ComposedChart, Line, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Legend, ReferenceLine,
 } from "recharts";
 import EventTimeline from "@/components/EventTimeline";
+import DecisionViewer from "@/components/DecisionViewer";
 
 interface Props { simulationId: string; onBack: () => void }
 const PAGE_SIZE = 50;
