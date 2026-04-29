@@ -113,7 +113,7 @@ export default function SimulationRunner() {
         scenario_number: i,
         scenario_params: params as unknown as Record<string, unknown>,
         status: "pending",
-      }).select("id").single();
+      } as never).select("id").single();
 
       if (error || !ins) {
         collected.push({ scenario_number: i, params, result: null, error: error?.message ?? "insert failed" });
