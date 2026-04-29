@@ -18,6 +18,7 @@ interface SimRun {
   optimization_mode: string; total_saved_sek: number | null; avg_price_paid: number | null;
   scenarios: number | null; status: string | null; started_at: string | null;
   total_v2h_saving_sek: number | null; peak_hours_avoided: number | null; price_savings_sek: number | null;
+  scenario_number?: number | null; scenario_params?: Record<string, number> | null;
 }
 interface Household {
   id: string; name: string; car_model: string | null; price_area: string | null;
