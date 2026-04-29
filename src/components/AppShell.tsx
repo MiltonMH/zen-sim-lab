@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Home, Database, Play, BarChart3, LogOut } from "lucide-react";
+import { Home, Database, Play, BarChart3, LogOut, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 import Login from "@/pages/Login";
@@ -8,8 +8,9 @@ import Data from "@/pages/Data";
 
 import Simulering from "@/pages/Simulering";
 import ResultatLoggar from "@/pages/ResultatLoggar";
+import Hushall from "@/pages/Hushall";
 
-type View = "overview" | "data" | "simulering" | "resultat";
+type View = "overview" | "data" | "hushall" | "simulering" | "resultat";
 
 type NavParams = Record<string, string | undefined>;
 
@@ -22,6 +23,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { id: "overview", label: "Översikt", icon: Home },
   { id: "data", label: "Data", icon: Database },
+  { id: "hushall", label: "Hushåll", icon: Users },
   { id: "simulering", label: "Simulering", icon: Play },
   { id: "resultat", label: "Resultat & Loggar", icon: BarChart3 },
 ];
@@ -40,7 +42,7 @@ export default function AppShell() {
           import: "data",
           "data-spot": "data",
           "data-tariffs": "data",
-          households: "simulering",
+          households: "hushall",
           runner: "simulering",
           "runner-bulk": "simulering",
           "results-overview": "resultat",
@@ -79,6 +81,8 @@ export default function AppShell() {
         return <Overview />;
       case "data":
         return <Data initialTab={(params.tab as "spot" | "tariffs" | "import" | undefined) ?? "spot"} />;
+      case "hushall":
+        return <Hushall />;
       case "simulering":
         return (
           <Simulering
