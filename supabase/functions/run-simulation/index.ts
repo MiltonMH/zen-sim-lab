@@ -166,8 +166,10 @@ Deno.serve(async (req) => {
 
     // 5. Per-day optimization
     let totalKwhCharged = 0;
-    let totalCostOptimized = 0;
-    let totalCostBaseline = 0;
+    let totalCostOptimized = 0;       // spot only (kept for backward-compatible savings calc)
+    let totalCostBaseline = 0;        // spot only baseline
+    let totalCostWithTariff = 0;      // spot + grid tariff + energy tax + VAT
+    let totalCostBaselineWithTariff = 0;
     let totalV2hKwh = 0;
     let totalV2hSavingSek = 0;
     let peakHoursAvoided = 0;
