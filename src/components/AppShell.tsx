@@ -23,6 +23,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { id: "overview", label: "Översikt", icon: Home },
   { id: "data", label: "Data", icon: Database },
+  { id: "hushall", label: "Hushåll", icon: Users },
   { id: "simulering", label: "Simulering", icon: Play },
   { id: "resultat", label: "Resultat & Loggar", icon: BarChart3 },
 ];
