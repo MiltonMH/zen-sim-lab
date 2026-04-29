@@ -213,8 +213,13 @@ export default function Hushall() {
                   <div>
                     <h3 className="font-semibold text-lg leading-tight">{h.name}</h3>
                     <p className="text-xs text-muted-foreground mt-1">
-                      {h.house_type} · {h.area_m2 ?? "—"} m² · {h.price_area}
+                      {h.grid_company ?? "Inget nätbolag"} · {h.price_area} · {h.house_type ?? "—"} {h.area_m2 ? `${h.area_m2}m²` : ""}
                     </p>
+                    {h.grid_company && tariffs[h.grid_company] != null && (
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        Effekttariff: {tariffs[h.grid_company]} SEK/kW/månad
+                      </p>
+                    )}
                   </div>
                   <div className="flex gap-1">
                     <Button variant="ghost" size="icon" onClick={() => openEdit(h)} title="Redigera">
