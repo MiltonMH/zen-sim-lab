@@ -325,6 +325,16 @@ function BulkMode({ households, evMap, bounds }: {
   const [done, setDone] = useState(false);
   const [startedAt, setStartedAt] = useState<number | null>(null);
 
+  // Auto-fall-back from Nivå 3 if any selected household lacks CCS2
+  useEffect(() => {
+    if (sharedMode !== "smart_v2x") return;
+    const blocked = Array.from(selected).some(id => {
+      const evId = households.find(h => h.id === id)?.ev_model_id;
+      return evId ? evMap[evId]?.ccs2_port === false : false;
+    });
+    if (blocked) setSharedMode("smart_charge");
+  }, [selected, sharedMode, households, evMap]);
+
   useEffect(() => {
     if (!bounds || sharedRange) return;
     const from = subDays(bounds.max, 30);
