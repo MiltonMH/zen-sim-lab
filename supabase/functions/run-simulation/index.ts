@@ -126,7 +126,31 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 4. Group by local day
+
+    // 3b. Grid tariffs for this household's grid_company (if any)
+    type Tariff = { hour_of_day: number; is_weekend: boolean; tariff_sek_kwh: number; month_from: number | null; month_to: number | null };
+    let tariffs: Tariff[] = [];
+    if (hh.grid_company) {
+      const { data: t } = await supabase
+        .from("grid_tariffs")
+        .select("hour_of_day, is_weekend, tariff_sek_kwh, month_from, month_to")
+        .eq("grid_company", hh.grid_company);
+      tariffs = (t ?? []) as Tariff[];
+    }
+    function lookupTariff(iso: string, hourOfDay: number): number {
+      if (tariffs.length === 0) return DEFAULT_GRID_TARIFF;
+      const d = new Date(iso);
+      const month = Number(new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Stockholm", month: "numeric" }).format(d));
+      const dow = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Stockholm", weekday: "short" }).format(d);
+      const isWeekend = dow === "Sat" || dow === "Sun";
+      const match = tariffs.find(r =>
+        r.hour_of_day === hourOfDay &&
+        r.is_weekend === isWeekend &&
+        (r.month_from == null || r.month_to == null || (month >= r.month_from && month <= r.month_to))
+      );
+      return match ? Number(match.tariff_sek_kwh) : DEFAULT_GRID_TARIFF;
+    }
+
     const byDay = new Map<string, DayHour[]>();
     for (const row of prices as SpotPrice[]) {
       const day = stockholmDay(row.hour);
