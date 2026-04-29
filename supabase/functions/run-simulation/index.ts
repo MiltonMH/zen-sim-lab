@@ -469,18 +469,20 @@ Deno.serve(async (req) => {
               soc_pct: Number(soc.toFixed(2)),
               grid_draw_kw: Number((CHARGE_KW + Number(logsBatch[idx].house_consumption_kw ?? 0)).toFixed(3)),
             };
+          }
+        }
+      }
+
       totalKwhCharged += dayKwhCharged;
       totalCostOptimized += dayChargeCost;
       totalCostWithTariff += dayChargeCostWithTariff;
 
-      // Bug 2 fix — compute dumb baseline AFTER optimized day is done, charging the SAME total
+      // Bug 2 fix — compute dumb baseline AFTER optimized day completes, charging the SAME total
       // kWh in the FIRST connected hours chronologically. Same energy + dumber pick → baseline
       // cost ≥ optimized cost (no negative savings).
       const baselineHoursNeeded = Math.ceil(dayKwhCharged / CHARGE_KW);
       const baselinePicked = baselineConnectedHours.slice(0, baselineHoursNeeded);
-      const baselineKwhTotal = dayKwhCharged; // exact same energy
-      // distribute energy across picked hours (last hour may be partial)
-      let kwhRemaining = baselineKwhTotal;
+      let kwhRemaining = dayKwhCharged;
       for (const h of baselinePicked) {
         const kwhThisHour = Math.min(CHARGE_KW, kwhRemaining);
         if (kwhThisHour <= 0) break;
@@ -489,12 +491,6 @@ Deno.serve(async (req) => {
         totalCostBaselineWithTariff += kwhThisHour * (h.price + tariff + ENERGY_TAX_SEK) * VAT_MULTIPLIER;
         kwhRemaining -= kwhThisHour;
       }
-    }
-
-    // (totalKwhCharged etc. were already accumulated above per-day; loop closed)
-    // — sentinel block to keep file structure stable —
-    {
-      totalCostWithTariff += dayChargeCostWithTariff;
     }
 
     // Bug 1 fix — per-simulation log lifecycle:
