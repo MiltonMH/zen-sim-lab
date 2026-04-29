@@ -25,6 +25,15 @@ const DEFAULT_GRID_TARIFF = 0.30; // fallback SEK/kWh when no tariff configured
 const DEFAULT_PEAK_TARIFF = 55;   // SEK/kW/month fallback
 const DC_EFFICIENCY = 0.95;       // both directions
 
+// V2H aktiveringströsklar per prisområde (SEK/kWh)
+// SE1/SE2 har lägre snittpriser → lägre tröskel så V2H faktiskt används
+const V2H_THRESHOLDS: Record<string, number> = {
+  SE1: 0.45,
+  SE2: 0.60,
+  SE3: 0.80,
+  SE4: 0.70,
+};
+
 // Default consumption weights (pendlare style) if profile missing
 const DEFAULT_WEIGHTS = [
   0.3,0.3,0.3,0.3,0.3,0.3,
