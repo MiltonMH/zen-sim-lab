@@ -278,6 +278,18 @@ export default function Households() {
     fetchData();
   };
 
+  if (selectedId) {
+    return (
+      <HouseholdDetail
+        householdId={selectedId}
+        onBack={() => setSelectedId(null)}
+        onEdit={(h) => handleEdit(h as Household)}
+        onDeleted={() => { setSelectedId(null); fetchData(); }}
+        onStartSim={() => { /* TODO: navigate to runner with preselected household */ }}
+      />
+    );
+  }
+
   return (
     <div className="space-y-10">
       <header className="flex items-end justify-between">
