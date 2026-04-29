@@ -44,7 +44,7 @@ interface RunResult {
   total_v2h_kwh: number;
   peak_hours_avoided: number;
   avg_price_paid: number;
-  v2x_capable: boolean;
+  ccs2_port: boolean;
   decisions_logged: number;
   days_processed: number;
 }
@@ -105,20 +105,20 @@ export default function SimulationRunner({
 }: { initialMode?: "single" | "bulk"; preselectedHouseholdId?: string; embedded?: boolean } = {}) {
   const [pageMode, setPageMode] = useState<"single" | "bulk">(initialMode);
   const [households, setHouseholds] = useState<Household[]>([]);
-  const [evMap, setEvMap] = useState<Record<string, { v2x_capable: boolean; brand: string; model: string }>>({});
+  const [evMap, setEvMap] = useState<Record<string, { ccs2_port: boolean; brand: string; model: string }>>({});
   const [bounds, setBounds] = useState<{ min: Date; max: Date } | null>(null);
 
   useEffect(() => {
     (async () => {
       const [{ data: hh }, { data: ev }, { data: minRow }, { data: maxRow }] = await Promise.all([
         supabase.from("household_profiles").select("id,name,car_model,price_area,ev_model_id").order("created_at", { ascending: false }),
-        supabase.from("ev_models").select("id,brand,model,v2x_capable"),
+        supabase.from("ev_models").select("id,brand,model,ccs2_port"),
         supabase.from("spot_prices").select("hour").order("hour", { ascending: true }).limit(1).maybeSingle(),
         supabase.from("spot_prices").select("hour").order("hour", { ascending: false }).limit(1).maybeSingle(),
       ]);
       setHouseholds((hh ?? []) as Household[]);
       const m: Record<string, any> = {};
-      (ev ?? []).forEach((e: any) => { m[e.id] = e; });
+      (ev ?? []).forEach((e: any) => { m[e.id] = { ...e, ccs2_port: e.ccs2_port !== false }; });
       setEvMap(m);
       if (minRow?.hour && maxRow?.hour) setBounds({ min: new Date(minRow.hour), max: new Date(maxRow.hour) });
     })();
@@ -284,7 +284,7 @@ interface HouseholdProgress {
 
 function BulkMode({ households, evMap, bounds }: {
   households: Household[];
-  evMap: Record<string, { v2x_capable: boolean; brand: string; model: string }>;
+  evMap: Record<string, { ccs2_port: boolean; brand: string; model: string }>;
   bounds: { min: Date; max: Date } | null;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -523,7 +523,7 @@ function BulkMode({ households, evMap, bounds }: {
                   <div className="text-sm font-medium truncate">{h.name}</div>
                   <div className="flex flex-wrap gap-1.5 mt-1.5 text-[10px]">
                     {(ev || h.car_model) && <span className="rounded-full bg-muted px-2 py-0.5">{ev ? `${ev.brand} ${ev.model}` : h.car_model}</span>}
-                    {ev?.v2x_capable && <span className="rounded-full bg-sky-500/15 text-sky-700 px-2 py-0.5 font-semibold">V2X</span>}
+                    {ev?.ccs2_port !== false && <span className="rounded-full bg-emerald-500/15 text-emerald-700 px-2 py-0.5 font-semibold">CCS2</span>}
                     {h.price_area && <span className="rounded-full bg-muted px-2 py-0.5">{h.price_area}</span>}
                   </div>
                 </div>
