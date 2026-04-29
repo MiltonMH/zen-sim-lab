@@ -324,7 +324,9 @@ export type Database = {
           charge_kw: number | null
           combined_score: number | null
           decision: string
+          energy_tax_sek: number | null
           grid_draw_kw: number | null
+          grid_tariff_sek: number | null
           house_consumption_kw: number | null
           household_id: string | null
           id: string
@@ -332,13 +334,16 @@ export type Database = {
           reason: string | null
           soc_pct: number | null
           spot_price_sek: number | null
+          total_cost_per_kwh: number | null
           v2h_saving_sek: number | null
         }
         Insert: {
           charge_kw?: number | null
           combined_score?: number | null
           decision: string
+          energy_tax_sek?: number | null
           grid_draw_kw?: number | null
+          grid_tariff_sek?: number | null
           house_consumption_kw?: number | null
           household_id?: string | null
           id?: string
@@ -346,13 +351,16 @@ export type Database = {
           reason?: string | null
           soc_pct?: number | null
           spot_price_sek?: number | null
+          total_cost_per_kwh?: number | null
           v2h_saving_sek?: number | null
         }
         Update: {
           charge_kw?: number | null
           combined_score?: number | null
           decision?: string
+          energy_tax_sek?: number | null
           grid_draw_kw?: number | null
+          grid_tariff_sek?: number | null
           house_consumption_kw?: number | null
           household_id?: string | null
           id?: string
@@ -360,6 +368,7 @@ export type Database = {
           reason?: string | null
           soc_pct?: number | null
           spot_price_sek?: number | null
+          total_cost_per_kwh?: number | null
           v2h_saving_sek?: number | null
         }
         Relationships: [
@@ -388,6 +397,8 @@ export type Database = {
           scenarios: number | null
           started_at: string | null
           status: string | null
+          total_cost_with_tariff: number | null
+          total_saved_including_tariff: number | null
           total_saved_sek: number | null
           total_v2h_kwh: number | null
           total_v2h_saving_sek: number | null
@@ -407,6 +418,8 @@ export type Database = {
           scenarios?: number | null
           started_at?: string | null
           status?: string | null
+          total_cost_with_tariff?: number | null
+          total_saved_including_tariff?: number | null
           total_saved_sek?: number | null
           total_v2h_kwh?: number | null
           total_v2h_saving_sek?: number | null
@@ -426,6 +439,8 @@ export type Database = {
           scenarios?: number | null
           started_at?: string | null
           status?: string | null
+          total_cost_with_tariff?: number | null
+          total_saved_including_tariff?: number | null
           total_saved_sek?: number | null
           total_v2h_kwh?: number | null
           total_v2h_saving_sek?: number | null
