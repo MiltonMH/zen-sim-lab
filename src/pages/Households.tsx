@@ -23,6 +23,13 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
+const GRID_COMPANIES_BY_AREA = {
+  SE1: ["Luleå Energi Elnät", "Skellefteå Kraft Elnät", "Umeå Energi Elnät"],
+  SE2: ["Tekniska Verken Linköping", "Jämtkraft Elnät"],
+  SE3: ["Göteborg Energi Nät", "Vattenfall Eldistribution", "E.ON Energidistribution", "Ellevio"],
+  SE4: ["Kraftringen Nät"],
+} as const;
+
 interface Household {
   id: string;
   name: string;
@@ -396,7 +403,11 @@ export default function Households() {
                     <Field label="Area m²"><Input type="number" value={form.area_m2} onChange={e => setForm({...form, area_m2: e.target.value})} /></Field>
                     <Field label="Byggår"><Input type="number" value={form.build_year} onChange={e => setForm({...form, build_year: e.target.value})} /></Field>
                     <Field label="Prisområde">
-                      <Select value={form.price_area} onValueChange={v => setForm({...form, price_area: v})}>
+                      <Select value={form.price_area} onValueChange={v => setForm({
+                        ...form,
+                        price_area: v,
+                        grid_company: (GRID_COMPANIES_BY_AREA[v as keyof typeof GRID_COMPANIES_BY_AREA] as readonly string[] | undefined)?.includes(form.grid_company) ? form.grid_company : "",
+                      })}>
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>{["SE1","SE2","SE3","SE4"].map(a => <SelectItem key={a} value={a}>{a}</SelectItem>)}</SelectContent>
                       </Select>
@@ -420,7 +431,17 @@ export default function Households() {
                       </SelectContent>
                     </Select>
                   </Field>
-                  <Field label="Elnätsbolag"><Input value={form.grid_company} onChange={e => setForm({...form, grid_company: e.target.value})} placeholder="Ellevio" /></Field>
+                  <Field label="Elnätsbolag">
+                    <Select value={form.grid_company || "__none__"} onValueChange={v => setForm({...form, grid_company: v === "__none__" ? "" : v})}>
+                      <SelectTrigger><SelectValue placeholder="Välj elnätsbolag" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">— Inget valt —</SelectItem>
+                        {GRID_COMPANIES_BY_AREA[form.price_area as keyof typeof GRID_COMPANIES_BY_AREA]?.map(c => (
+                          <SelectItem key={c} value={c}>{c}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
                   <div className="flex items-center justify-between rounded-lg border p-3">
                     <Label className="text-sm">Solpaneler</Label>
                     <Switch checked={form.has_solar_panels} onCheckedChange={v => setForm({...form, has_solar_panels: v})} />
