@@ -441,6 +441,16 @@ Deno.serve(async (req) => {
       if (lErr) console.error("log insert error", lErr.message);
     }
 
+    // Clear and insert events for this simulation (scenario 1 clears the window)
+    if ((sim.scenario_number ?? 1) === 1) {
+      await supabase.from("simulation_events").delete().eq("simulation_id", simulation_id);
+    }
+    for (let i = 0; i < eventsBatch.length; i += 500) {
+      const chunk = eventsBatch.slice(i, i + 500);
+      const { error: eErr } = await supabase.from("simulation_events").insert(chunk);
+      if (eErr) console.error("event insert error", eErr.message);
+    }
+
     const priceSavings = totalCostBaseline - totalCostOptimized;
     const totalSaved = priceSavings + totalV2hSavingSek;
     const savingsIncludingTariff = (totalCostBaselineWithTariff - totalCostWithTariff) + totalV2hSavingSek * VAT_MULTIPLIER;
@@ -456,6 +466,7 @@ Deno.serve(async (req) => {
       avg_price_paid: Number(avgPricePaid.toFixed(4)),
       total_cost_with_tariff: round2(totalCostWithTariff),
       total_saved_including_tariff: round2(savingsIncludingTariff),
+      total_events: eventsBatch.length,
       ended_at: new Date().toISOString(),
     }).eq("id", simulation_id);
 
