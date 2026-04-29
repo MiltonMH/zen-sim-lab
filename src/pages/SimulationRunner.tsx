@@ -156,14 +156,19 @@ export default function SimulationRunner({
       )}
 
       {pageMode === "single"
-        ? <SingleMode households={households} bounds={bounds} preselectedHouseholdId={preselectedHouseholdId} />
+        ? <SingleMode households={households} evMap={evMap} bounds={bounds} preselectedHouseholdId={preselectedHouseholdId} />
         : <BulkMode households={households} evMap={evMap} bounds={bounds} />}
     </div>
   );
 }
 
 /* ============================ SINGLE MODE ============================ */
-function SingleMode({ households, bounds, preselectedHouseholdId }: { households: Household[]; bounds: { min: Date; max: Date } | null; preselectedHouseholdId?: string }) {
+function SingleMode({ households, evMap, bounds, preselectedHouseholdId }: {
+  households: Household[];
+  evMap: Record<string, { ccs2_port: boolean; brand: string; model: string }>;
+  bounds: { min: Date; max: Date } | null;
+  preselectedHouseholdId?: string;
+}) {
   const [mode, setMode] = useState<string>("smart_charge");
   const [scenarios, setScenarios] = useState([10]);
   const [range, setRange] = useState<DateRange | undefined>(undefined);
