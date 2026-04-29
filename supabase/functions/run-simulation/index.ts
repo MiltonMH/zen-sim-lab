@@ -145,7 +145,7 @@ Deno.serve(async (req) => {
     let totalV2hSavingSek = 0;
     let peakHoursAvoided = 0;
     let decisionsLogged = 0;
-    let soc = 50;
+    let soc = startingSoc;
 
     const logsBatch: Array<Record<string, unknown>> = [];
     const sortedDays = Array.from(byDay.keys()).sort();
@@ -190,7 +190,7 @@ Deno.serve(async (req) => {
         let gridDrawKw = hourConsKw;
 
         // Hard rule: emergency charge
-        if (soc < SOC_EMERGENCY) {
+        if (soc < minSoc) {
           decision = "emergency_charge";
           chargeKw = CHARGE_KW;
           reason = "soc_below_20_emergency";
