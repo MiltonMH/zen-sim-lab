@@ -141,6 +141,28 @@ export default function ImportData() {
             </p>
           </div>
 
+          {/* Year selector */}
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 p-4">
+            <div>
+              <p className="text-sm font-medium">Year</p>
+              <p className="text-xs text-muted-foreground">Choose which year to import</p>
+            </div>
+            <Select
+              value={String(selectedYear)}
+              onValueChange={(v) => setSelectedYear(Number(v))}
+              disabled={phase === "importing"}
+            >
+              <SelectTrigger className="w-32 rounded-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {YEAR_OPTIONS.map((y) => (
+                  <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           {/* Test API */}
           <div className="rounded-xl border border-border/60 p-4 space-y-3 bg-muted/30">
             <div className="flex items-center justify-between gap-3">
