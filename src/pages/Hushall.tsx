@@ -91,6 +91,7 @@ const GRID_COMPANIES_BY_AREA: Record<string, string[]> = {
 export default function Hushall() {
   const [items, setItems] = useState<Household[]>([]);
   const [evModels, setEvModels] = useState<EvModel[]>([]);
+  const [tariffs, setTariffs] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Partial<Household> | null>(null);
@@ -99,12 +100,18 @@ export default function Hushall() {
 
   const load = async () => {
     setLoading(true);
-    const [{ data: hh }, { data: ev }] = await Promise.all([
+    const [{ data: hh }, { data: ev }, { data: gcs }] = await Promise.all([
       supabase.from("household_profiles").select("*").order("name"),
       supabase.from("ev_models").select("id,brand,model,battery_kwh,ccs2_port").order("brand").order("model"),
+      supabase.from("grid_company_settings").select("grid_company, peak_tariff_sek_per_kw"),
     ]);
     setItems((hh ?? []) as Household[]);
     setEvModels((ev ?? []) as EvModel[]);
+    const map: Record<string, number> = {};
+    for (const r of (gcs ?? []) as { grid_company: string; peak_tariff_sek_per_kw: number }[]) {
+      map[r.grid_company] = Number(r.peak_tariff_sek_per_kw);
+    }
+    setTariffs(map);
     setLoading(false);
   };
 
@@ -125,6 +132,10 @@ export default function Hushall() {
     if (!editing) return;
     if (!editing.name?.trim()) {
       toast({ title: "Namn krävs", variant: "destructive" });
+      return;
+    }
+    if (!editing.grid_company?.trim()) {
+      toast({ title: "Nätbolag krävs", description: "Välj ett nätbolag för att kunna beräkna effekttariff.", variant: "destructive" });
       return;
     }
     setSaving(true);
