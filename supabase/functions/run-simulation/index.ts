@@ -16,7 +16,7 @@ const DEFAULT_HARD_MAX_PRICE = 2.0;       // default never-charge threshold
 const TOO_CHEAP_PRICE = 0.20;     // always charge below this
 const DEFAULT_SOC_EMERGENCY = 20;         // force charge below this
 const SOC_PROTECT = 95;           // never charge above this
-const BASELINE_HOURS = [20, 21, 22, 23, 0, 1, 2, 3]; // unoptimized fixed window 20-04
+const KM_PER_KWH_BASELINE = 6;    // simple efficiency for min-charge calc (~6 km per kWh)
 const PRICE_THRESHOLDS = [1.5, 2.0, 2.5];
 const ENERGY_TAX_SEK = 0.549;     // 2025 Swedish energy tax SEK/kWh
 const VAT_MULTIPLIER = 1.25;      // 25% moms
@@ -215,13 +215,35 @@ Deno.serve(async (req) => {
       const ranked = [...scored].sort((a, b) => b.combined - a.combined);
       const pickedCharge = new Set<number>(ranked.slice(0, TARGET_CHARGE_HOURS).map(r => r.idx));
 
-      // Baseline: fixed-window charge regardless of price
-      const baselineHours = scored.filter(h => BASELINE_HOURS.includes(h.hourOfDay));
-      const baselineRef = baselineHours.length > 0 ? baselineHours : dayHours;
-      const baselineAvgPrice = baselineRef.reduce((s, h) => s + h.price, 0) / baselineRef.length;
-      const baselineAvgTariff = baselineRef.reduce((s, h) => s + lookupTariff(h.iso, h.hourOfDay), 0) / baselineRef.length;
-      const dayBaselineCost = dailyKwhNeeded * baselineAvgPrice;
-      const dayBaselineCostWithTariff = dailyKwhNeeded * (baselineAvgPrice + baselineAvgTariff + ENERGY_TAX_SEK) * VAT_MULTIPLIER;
+      // Bug 2 fix — TRULY DUMB BASELINE:
+      // Baseline = charge whenever the car is connected (return_time → leave_time, wrap over
+      // midnight), regardless of price. Charges ALL those hours at whatever price they have,
+      // capped only by SoC headroom (i.e. battery never overcharges past 100%).
+      // This is intentionally wasteful — it represents the "always plug in, always pull power"
+      // strategy and guarantees baseline cost >= optimized cost.
+      const isConnectedHour = (hod: number) => {
+        if (returnTime === leaveTime) return true; // edge: assume always home
+        if (returnTime < leaveTime) return hod >= returnTime && hod < leaveTime;
+        // wrap-around (e.g. 17 → 07): connected from returnTime..23 and 0..leaveTime-1
+        return hod >= returnTime || hod < leaveTime;
+      };
+      const baselineHours = scored.filter(h => isConnectedHour(h.hourOfDay));
+      // Only charge until SoC tops out — but baseline starts each day at startingSoc and adds
+      // back daily driving consumption, so headroom = (100 - startingSoc) + dailyKwhNeededAsPct.
+      // Simplification: cap baseline charge at battery capacity * (100 - startingSoc) / 100 + dailyKwhNeeded.
+      const baselineHeadroomKwh = batteryKwh * (100 - startingSoc) / 100 + dailyKwhNeeded;
+      const maxBaselineHours = Math.max(1, Math.floor(baselineHeadroomKwh / CHARGE_KW));
+      // Charge chronologically — dumb baseline doesn't price-shop. Take up to headroom.
+      const baselineCharging = [...baselineHours]
+        .sort((a, b) => a.iso.localeCompare(b.iso))
+        .slice(0, maxBaselineHours);
+      let dayBaselineCost = 0;
+      let dayBaselineCostWithTariff = 0;
+      for (const h of baselineCharging) {
+        const tariff = lookupTariff(h.iso, h.hourOfDay);
+        dayBaselineCost += CHARGE_KW * h.price;
+        dayBaselineCostWithTariff += CHARGE_KW * (h.price + tariff + ENERGY_TAX_SEK) * VAT_MULTIPLIER;
+      }
       totalCostBaseline += dayBaselineCost;
       totalCostBaselineWithTariff += dayBaselineCostWithTariff;
 
@@ -306,6 +328,7 @@ Deno.serve(async (req) => {
         }
 
         logsBatch.push({
+          simulation_id,
           household_id: sim.household_id,
           logged_at: h.iso,
           decision,
@@ -422,23 +445,91 @@ Deno.serve(async (req) => {
         }
       }
 
+      // Bug 3 fix — MINIMUM DAILY CHARGE GUARANTEE:
+      // Always charge at least the minimum needed kWh/day so the car is usable tomorrow,
+      // regardless of price-optimization rules (this matters in flat-price areas like SE4
+      // where the hard threshold rarely triggers but combined-score still skips too much).
+      const minKwhNeeded = (dailyKm / KM_PER_KWH_BASELINE);
+      if (dayKwhCharged < minKwhNeeded) {
+        const remainingKwh = minKwhNeeded - dayKwhCharged;
+        const hoursToForce = Math.ceil(remainingKwh / CHARGE_KW);
+        // Pick cheapest hours where we did NOT already charge or v2h
+        const alreadyChargedIsos = new Set(
+          logsBatch
+            .filter(l => l.logged_at && (l.decision === "charge" || l.decision === "emergency_charge" || l.decision === "v2h"))
+            .map(l => l.logged_at as string),
+        );
+        const dayIsos = new Set(scored.map(h => h.iso));
+        const candidates = scored
+          .filter(h => dayIsos.has(h.iso) && !alreadyChargedIsos.has(h.iso) && soc < SOC_PROTECT)
+          .sort((a, b) => a.price - b.price)
+          .slice(0, hoursToForce);
+
+        for (const h of candidates) {
+          if (dayKwhCharged >= minKwhNeeded) break;
+          if (soc >= SOC_PROTECT) break;
+          const kwh = CHARGE_KW;
+          const gridTariffSek = lookupTariff(h.iso, h.hourOfDay);
+          const totalCostPerKwh = (h.price + gridTariffSek + ENERGY_TAX_SEK) * VAT_MULTIPLIER;
+          soc = Math.min(100, soc + (kwh / batteryKwh) * 100);
+          dayKwhCharged += kwh;
+          dayChargeCost += kwh * h.price;
+          dayChargeCostWithTariff += kwh * totalCostPerKwh;
+
+          // Update the existing log row for that hour: flip its decision to charge w/ minimum reason.
+          const idx = logsBatch.findIndex(l => l.logged_at === h.iso && l.simulation_id === simulation_id);
+          if (idx >= 0) {
+            logsBatch[idx] = {
+              ...logsBatch[idx],
+              decision: "charge",
+              reason: "minimum_dagsladdning",
+              charge_kw: Number(CHARGE_KW.toFixed(2)),
+              soc_pct: Number(soc.toFixed(2)),
+              grid_draw_kw: Number((CHARGE_KW + Number(logsBatch[idx].house_consumption_kw ?? 0)).toFixed(3)),
+            };
+          }
+        }
+      }
+
       totalKwhCharged += dayKwhCharged;
       totalCostOptimized += dayChargeCost;
       totalCostWithTariff += dayChargeCostWithTariff;
     }
 
-    // Only the first scenario clears prior logs in the window;
-    // subsequent scenarios append so the household's full distribution is visible.
-    if ((sim.scenario_number ?? 1) === 1) {
-      await supabase.from("optimization_logs").delete()
-        .eq("household_id", sim.household_id)
-        .gte("logged_at", fromIso).lte("logged_at", toIso);
-    }
+    // Bug 1 fix — per-simulation log lifecycle:
+    // Each simulation owns its own logs (now keyed by simulation_id). We delete only THIS
+    // simulation's prior logs (idempotent re-runs) instead of wiping the whole household
+    // window, which previously meant only the last simulation in a bulk run had logs.
+    await supabase.from("optimization_logs").delete().eq("simulation_id", simulation_id);
 
+    let logsInserted = 0;
     for (let i = 0; i < logsBatch.length; i += 500) {
       const chunk = logsBatch.slice(i, i + 500);
-      const { error: lErr } = await supabase.from("optimization_logs").insert(chunk);
-      if (lErr) console.error("log insert error", lErr.message);
+      const { error: lErr, count } = await supabase
+        .from("optimization_logs")
+        .insert(chunk, { count: "exact" });
+      if (lErr) {
+        console.error("log insert error", lErr.message);
+      } else {
+        logsInserted += count ?? chunk.length;
+      }
+    }
+
+    // Verify logs landed for this simulation_id; warn loudly if not.
+    const { count: verifyCount, error: verifyErr } = await supabase
+      .from("optimization_logs")
+      .select("id", { count: "exact", head: true })
+      .eq("simulation_id", simulation_id);
+    if (verifyErr) {
+      console.error("log verify error", verifyErr.message);
+    } else if ((verifyCount ?? 0) === 0 && logsBatch.length > 0) {
+      console.error(
+        `❌ optimization_logs verification failed: simulation_id=${simulation_id} expected ${logsBatch.length} rows, found 0`,
+      );
+    } else {
+      console.log(
+        `✓ optimization_logs verified: simulation_id=${simulation_id} household=${sim.household_id} rows=${verifyCount}`,
+      );
     }
 
     // Clear and insert events for this simulation (scenario 1 clears the window)
