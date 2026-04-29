@@ -1,29 +1,15 @@
 import { useEffect, useState } from "react";
-import {
-  Home, Database, Building2, Play, FileText, LogOut, Download,
-  TrendingUp, Zap, Layers, BarChart3, Boxes,
-} from "lucide-react";
+import { Home, Database, Play, BarChart3, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 import Login from "@/pages/Login";
 import Overview from "@/pages/Overview";
 import DataExplorer from "@/pages/DataExplorer";
 import ImportData from "@/pages/ImportData";
-import Households from "@/pages/Households";
 import SimulationRunner from "@/pages/SimulationRunner";
 import Results from "@/pages/Results";
 
-type View =
-  | "overview"
-  | "import"
-  | "data-spot"
-  | "data-tariffs"
-  | "households"
-  | "runner"
-  | "runner-bulk"
-  | "results-overview"
-  | "results-households"
-  | "results-logs";
+type View = "overview" | "data" | "simulering" | "resultat";
 
 type NavParams = Record<string, string | undefined>;
 
@@ -33,42 +19,11 @@ interface NavItem {
   icon: typeof Home;
 }
 
-interface NavSection {
-  label: string;
-  items: NavItem[];
-}
-
-const sections: NavSection[] = [
-  {
-    label: "Data",
-    items: [
-      { id: "import", label: "Import Data", icon: Download },
-      { id: "data-spot", label: "Spot Prices", icon: TrendingUp },
-      { id: "data-tariffs", label: "Grid Tariffs", icon: Zap },
-    ],
-  },
-  {
-    label: "Simulering",
-    items: [
-      { id: "households", label: "Hushåll", icon: Building2 },
-      { id: "runner", label: "Kör simulering", icon: Play },
-      { id: "runner-bulk", label: "Bulk-körning", icon: Boxes },
-    ],
-  },
-  {
-    label: "Resultat",
-    items: [
-      { id: "results-overview", label: "Översikt", icon: BarChart3 },
-      { id: "results-households", label: "Per hushåll", icon: Layers },
-      { id: "results-logs", label: "Loggar", icon: FileText },
-    ],
-  },
-  {
-    label: "System",
-    items: [
-      { id: "overview", label: "Overview", icon: Home },
-    ],
-  },
+const navItems: NavItem[] = [
+  { id: "overview", label: "Översikt", icon: Home },
+  { id: "data", label: "Data", icon: Database },
+  { id: "simulering", label: "Simulering", icon: Play },
+  { id: "resultat", label: "Resultat & Loggar", icon: BarChart3 },
 ];
 
 export default function AppShell() {
@@ -80,7 +35,20 @@ export default function AppShell() {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent<{ view: View; params?: NavParams }>).detail;
       if (detail?.view) {
-        setView(detail.view);
+        // Map any legacy view names from old code paths to the new 4-item structure
+        const legacyMap: Record<string, View> = {
+          import: "data",
+          "data-spot": "data",
+          "data-tariffs": "data",
+          households: "simulering",
+          runner: "simulering",
+          "runner-bulk": "simulering",
+          "results-overview": "resultat",
+          "results-households": "resultat",
+          "results-logs": "resultat",
+        };
+        const next = (legacyMap[detail.view as string] ?? detail.view) as View;
+        setView(next);
         setParams(detail.params ?? {});
       }
     };
@@ -88,9 +56,9 @@ export default function AppShell() {
     return () => window.removeEventListener("zen:navigate", handler as EventListener);
   }, []);
 
-  const navigate = (id: View, p: NavParams = {}) => {
+  const navigate = (id: View) => {
     setView(id);
-    setParams(p);
+    setParams({});
   };
 
   if (loading) {
@@ -103,29 +71,26 @@ export default function AppShell() {
 
   if (!session) return <Login />;
 
-  // Map sidebar items to underlying page + tab/view params
+  // Page content unchanged in this step — only the sidebar is being restructured.
+  // Data tab defaults to spot-prices view inside the existing DataExplorer.
+  // Simulering defaults to the single-run mode inside the existing runner.
+  // Resultat defaults to the overview view inside the existing Results page.
   const renderPage = () => {
     switch (view) {
       case "overview":
         return <Overview />;
-      case "import":
-        return <ImportData initialTab={params.tab as "spot" | "tariffs" | undefined} />;
-      case "data-spot":
-        return <DataExplorer initialTab="spot" />;
-      case "data-tariffs":
-        return <DataExplorer initialTab="tariffs" />;
-      case "households":
-        return <Households />;
-      case "runner":
-        return <SimulationRunner initialMode="single" preselectedHouseholdId={params.household} />;
-      case "runner-bulk":
-        return <SimulationRunner initialMode="bulk" />;
-      case "results-overview":
-        return <Results initialView="overview" />;
-      case "results-households":
-        return <Results initialView="households" />;
-      case "results-logs":
-        return <Results initialView="logs" />;
+      case "data":
+        // Existing Data Explorer is the richer of the two; Import lives inside it via tab in the next step.
+        return <DataExplorer initialTab={(params.tab as "spot" | "tariffs" | undefined) ?? "spot"} />;
+      case "simulering":
+        return (
+          <SimulationRunner
+            initialMode={(params.mode as "single" | "bulk" | undefined) ?? "single"}
+            preselectedHouseholdId={params.household}
+          />
+        );
+      case "resultat":
+        return <Results initialView={(params.view as "overview" | "households" | "logs" | undefined) ?? "overview"} />;
       default:
         return <Overview />;
     }
@@ -134,38 +99,31 @@ export default function AppShell() {
   return (
     <div className="min-h-screen w-full flex bg-background">
       <aside className="w-64 shrink-0 bg-sidebar border-r border-sidebar-border flex flex-col">
-        <div className="px-6 pt-7 pb-6 flex items-center gap-2.5">
+        <div className="px-6 pt-7 pb-8 flex items-center gap-2.5">
           <span className="h-2.5 w-2.5 rounded-full bg-primary animate-pulse-dot" />
           <span className="font-semibold text-[17px] tracking-tight text-sidebar-foreground">ZenOS Lab</span>
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-3 pb-4 space-y-5">
-          {sections.map((section) => (
-            <div key={section.label} className="space-y-1">
-              <div className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-                {section.label}
-              </div>
-              {section.items.map((item) => {
-                const Icon = item.icon;
-                const active = view === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => navigate(item.id)}
-                    className={cn(
-                      "w-full flex items-center gap-3 px-3 py-2 rounded-full text-sm font-medium transition-colors",
-                      active
-                        ? "bg-primary text-primary-foreground shadow-soft"
-                        : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                    )}
-                  >
-                    <Icon className="h-4 w-4" />
-                    {item.label}
-                  </button>
-                );
-              })}
-            </div>
-          ))}
+        <nav className="flex-1 overflow-y-auto px-3 pb-4 space-y-1">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const active = view === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => navigate(item.id)}
+                className={cn(
+                  "w-full flex items-center gap-3 px-3 py-2.5 rounded-full text-sm font-medium transition-colors",
+                  active
+                    ? "bg-primary text-primary-foreground shadow-soft"
+                    : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                )}
+              >
+                <Icon className="h-4 w-4" />
+                {item.label}
+              </button>
+            );
+          })}
         </nav>
 
         <div className="px-3 py-4 border-t border-sidebar-border space-y-2">
