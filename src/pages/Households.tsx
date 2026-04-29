@@ -243,7 +243,7 @@ export default function Households() {
                     }}
                   >
                     <CommandInput placeholder="Search brand or model..." />
-                    <CommandList>
+                    <CommandList className="max-h-[300px] overflow-y-auto overscroll-contain">
                       <CommandEmpty>No EV found.</CommandEmpty>
                       <CommandGroup>
                         {evModels.map(ev => {
