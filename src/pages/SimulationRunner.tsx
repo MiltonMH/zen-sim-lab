@@ -24,8 +24,12 @@ interface RunResult {
   days_processed: number;
   total_kwh_charged: number;
   total_saved_sek: number;
+  price_savings_sek: number;
+  total_v2h_kwh: number;
+  total_v2h_saving_sek: number;
+  peak_hours_avoided: number;
   avg_price_paid: number;
-  baseline_avg_price: number;
+  v2x_capable: boolean;
   decisions_logged: number;
 }
 
