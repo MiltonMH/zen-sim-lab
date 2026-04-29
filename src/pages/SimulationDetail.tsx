@@ -121,8 +121,9 @@ Beslut loggade: ${logs.length}`;
       </div>
 
       <Tabs defaultValue="overview">
-        <TabsList className="rounded-full bg-muted p-1">
+        <TabsList className="rounded-full bg-muted p-1 flex-wrap h-auto">
           <TabsTrigger value="overview" className="rounded-full px-5">Översikt</TabsTrigger>
+          <TabsTrigger value="decision-viewer" className="rounded-full px-5">Beslutsvy</TabsTrigger>
           <TabsTrigger value="chart" className="rounded-full px-5">Graf</TabsTrigger>
           <TabsTrigger value="decisions" className="rounded-full px-5">Beslut</TabsTrigger>
           <TabsTrigger value="events" className="rounded-full px-5">Händelselogg</TabsTrigger>
