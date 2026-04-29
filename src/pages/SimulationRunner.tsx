@@ -36,7 +36,7 @@ interface RunResult {
 export default function SimulationRunner() {
   const [mode, setMode] = useState("price");
   const [scenarios, setScenarios] = useState([10]);
-  const [range, setRange] = useState<DateRange | undefined>({ from: subDays(new Date(), 30), to: new Date() });
+  const [range, setRange] = useState<DateRange | undefined>({ from: new Date("2025-12-01"), to: new Date("2025-12-31") });
   const [households, setHouseholds] = useState<{ id: string; name: string }[]>([]);
   const [householdId, setHouseholdId] = useState<string>("");
   const [running, setRunning] = useState(false);
