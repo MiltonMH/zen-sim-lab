@@ -483,6 +483,7 @@ Deno.serve(async (req) => {
       total_saved_including_tariff: round2(savingsIncludingTariff),
       v2x_capable: v2xCapable,
       decisions_logged: decisionsLogged,
+      events_logged: eventsBatch.length,
     }, 200);
   } catch (err) {
     console.error("run-simulation error", err);
