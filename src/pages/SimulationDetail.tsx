@@ -282,6 +282,14 @@ function buildSummary(sim: any, logs: any[]) {
 function BackButton({ onBack }: { onBack: () => void }) {
   return <Button variant="ghost" onClick={onBack} className="gap-2 -ml-3"><ArrowLeft className="h-4 w-4" /> Tillbaka</Button>;
 }
+function ParamCell({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className="font-mono font-semibold text-sm mt-0.5">{value}</div>
+    </div>
+  );
+}
 function Stat({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
     <div className="rounded-xl border border-border/40 bg-background/60 px-4 py-3">
