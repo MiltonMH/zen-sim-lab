@@ -269,8 +269,14 @@ Deno.serve(async (req) => {
     }
 
     for (const day of sortedDays) {
+      if (Date.now() - simStartMs > SIM_SOFT_TIMEOUT_MS) {
+        partialSimulation = true;
+        console.warn(`⏱ soft-timeout after ${daysProcessed}/${sortedDays.length} days — saving partial`);
+        break;
+      }
       const dayHours = byDay.get(day)!;
       if (dayHours.length === 0) continue;
+      daysProcessed++;
       const monthKey = day.slice(0, 7); // YYYY-MM
 
       const maxPrice = Math.max(...dayHours.map(h => h.price));
