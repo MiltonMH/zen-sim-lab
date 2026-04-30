@@ -374,7 +374,8 @@ Deno.serve(async (req) => {
           h.hourOfDay >= 7 && h.hourOfDay < 22 &&
           hourConsKw > 0.5
         ) {
-          const dischargeKw = Math.min(smartV2hKw, hourConsKw, v2hMaxKw);
+          const fuseHeadroomKw = Math.max(0, fuseMaxKw - hourConsKw);
+          const dischargeKw = Math.min(smartV2hKw, v2hMaxKw, fuseHeadroomKw);
           decision = "v2h";
           chargeKw = -dischargeKw;
           v2hSaving = dischargeKw * totalCostPerKwh; // saved at full retail cost (incl tariff+tax+VAT)
@@ -389,7 +390,8 @@ Deno.serve(async (req) => {
           h.price > dailyAvgPrice * V2H_DAILY_SPREAD_MULTIPLIER &&
           soc > 40
         ) {
-          const dischargeKw = Math.min(7, v2hMaxKw, hourConsKw + 7);
+          const fuseHeadroomKw = Math.max(0, fuseMaxKw - hourConsKw);
+          const dischargeKw = Math.min(7, v2hMaxKw, fuseHeadroomKw);
           decision = "v2h";
           chargeKw = -dischargeKw;
           v2hSaving = dischargeKw * h.price;
