@@ -266,6 +266,9 @@ function SingleMode({ households, evMap, bounds, preselectedHouseholdId }: {
             );
           })}
         </RadioGroup>
+        <p className="text-[11px] text-emerald-700 dark:text-emerald-400 mt-2">
+          Nivå 3 är standard för datainsamling
+        </p>
       </Section>
 
       <Section title={`Number of scenarios — ${scenarios[0]}`}>
@@ -621,6 +624,9 @@ function BulkMode({ households, evMap, bounds }: {
                   );
                 })}
               </RadioGroup>
+              <p className="text-[11px] text-emerald-700 dark:text-emerald-400 mt-2">
+                Nivå 3 är standard för datainsamling
+              </p>
             </div>
             <div>
               <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
