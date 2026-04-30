@@ -74,6 +74,12 @@ Deno.serve(async (req) => {
     if (simErr || !sim) return json({ error: simErr?.message ?? "Simulation not found" }, 404);
     await supabase.from("simulation_runs").update({ status: "running" }).eq("id", simulation_id);
 
+    // Soft timeout: if processing exceeds this, stop the day-loop and save partial results
+    const SIM_SOFT_TIMEOUT_MS = 25_000;
+    const simStartMs = Date.now();
+    let partialSimulation = false;
+    let daysProcessed = 0;
+
     const mode: Mode = normalizeMode(sim.optimization_mode);
 
     // 2. Household
