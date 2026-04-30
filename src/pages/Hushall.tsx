@@ -11,10 +11,9 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Plus, Pencil, Trash2, Home, Car, Zap, FolderOpen, ChevronLeft, ChevronRight } from "lucide-react";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
-import { HOUSEHOLD_TYPE_FILTERS, householdTypeMeta, type HouseholdType } from "@/lib/householdTypes";
+import { householdTypeMeta, type HouseholdType } from "@/lib/householdTypes";
 
 interface EvModel {
   id: string;
