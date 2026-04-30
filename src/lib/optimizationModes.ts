@@ -13,12 +13,12 @@ export interface ModeMeta {
 
 export const OPTIMIZATION_MODES: ModeMeta[] = [
   {
-    id: "smart_charge_basic",
-    label: "Nivå 1",
-    longLabel: "Nivå 1 — Grundläggande",
+    id: "smart_v2x",
+    label: "Nivå 3",
+    longLabel: "Nivå 3 — Full V2X",
     description:
-      "Laddar under de 8 billigaste timmarna per dag. Ingen V2X.",
-    requiresCcs2: false,
+      "Full ZenOS-optimering med V2X. Smart laddning + V2H under toppar + effekttariffskydd + batterihälsa. Kräver V2X-kapabel bil med CCS2-port.",
+    requiresCcs2: true,
   },
   {
     id: "smart_charge",
@@ -29,12 +29,12 @@ export const OPTIMIZATION_MODES: ModeMeta[] = [
     requiresCcs2: false,
   },
   {
-    id: "smart_v2x",
-    label: "Nivå 3",
-    longLabel: "Nivå 3 — Full V2X",
+    id: "smart_charge_basic",
+    label: "Nivå 1",
+    longLabel: "Nivå 1 — Grundläggande",
     description:
-      "Full ZenOS-optimering med V2X. Smart laddning + V2H under toppar + effekttariffskydd + batterihälsa. Kräver V2X-kapabel bil med CCS2-port.",
-    requiresCcs2: true,
+      "Laddar under de 8 billigaste timmarna per dag. Ingen V2X.",
+    requiresCcs2: false,
   },
 ];
 
