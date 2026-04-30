@@ -74,6 +74,12 @@ Deno.serve(async (req) => {
     if (simErr || !sim) return json({ error: simErr?.message ?? "Simulation not found" }, 404);
     await supabase.from("simulation_runs").update({ status: "running" }).eq("id", simulation_id);
 
+    // Soft timeout: if processing exceeds this, stop the day-loop and save partial results
+    const SIM_SOFT_TIMEOUT_MS = 25_000;
+    const simStartMs = Date.now();
+    let partialSimulation = false;
+    let daysProcessed = 0;
+
     const mode: Mode = normalizeMode(sim.optimization_mode);
 
     // 2. Household
@@ -263,8 +269,14 @@ Deno.serve(async (req) => {
     }
 
     for (const day of sortedDays) {
+      if (Date.now() - simStartMs > SIM_SOFT_TIMEOUT_MS) {
+        partialSimulation = true;
+        console.warn(`⏱ soft-timeout after ${daysProcessed}/${sortedDays.length} days — saving partial`);
+        break;
+      }
       const dayHours = byDay.get(day)!;
       if (dayHours.length === 0) continue;
+      daysProcessed++;
       const monthKey = day.slice(0, 7); // YYYY-MM
 
       const maxPrice = Math.max(...dayHours.map(h => h.price));
@@ -655,14 +667,23 @@ Deno.serve(async (req) => {
       total_cost_with_tariff: round2(totalCostWithTariff),
       total_saved_including_tariff: round2(savingsIncludingTariff),
       total_events: eventsBatch.length,
-      warnings: Object.keys(warnings).length > 0 ? warnings : null,
+      warnings: (() => {
+        const w = { ...warnings } as Record<string, unknown>;
+        if (partialSimulation) {
+          w.partial_simulation = true;
+          w.partial_reason = `Soft timeout efter ${daysProcessed}/${sortedDays.length} dagar — partiella resultat sparade.`;
+        }
+        return Object.keys(w).length > 0 ? w : null;
+      })(),
       ended_at: new Date().toISOString(),
     }).eq("id", simulation_id);
 
     return json({
       mode,
       ccs2_port: ccs2Port,
-      days_processed: sortedDays.length,
+      days_processed: daysProcessed,
+      total_days_requested: sortedDays.length,
+      partial_simulation: partialSimulation,
       total_kwh_charged: round2(totalKwhCharged),
       total_saved_sek: round2(totalSaved),
       price_savings_sek: round2(priceSavings),
