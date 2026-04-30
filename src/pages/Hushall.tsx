@@ -218,92 +218,133 @@ export default function Hushall() {
         </Button>
       </header>
 
-      {/* Filter tabs */}
-      <Tabs value={typeFilter} onValueChange={(v) => setTypeFilter(v as "all" | HouseholdType)}>
-        <TabsList className="rounded-full bg-muted p-1">
-          {HOUSEHOLD_TYPE_FILTERS.map((f) => {
-            const count = f.value === "all"
-              ? items.length
-              : items.filter(h => (h.household_type ?? "training") === f.value).length;
-            return (
-              <TabsTrigger key={f.value} value={f.value} className="rounded-full px-4 gap-2">
-                {f.label} <span className="text-[11px] text-muted-foreground tabular-nums">({count})</span>
-              </TabsTrigger>
-            );
-          })}
-        </TabsList>
-      </Tabs>
+      {/* Breadcrumb */}
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <button
+          onClick={() => setOpenFolder(null)}
+          className={openFolder ? "hover:text-foreground transition-colors" : "text-foreground font-medium"}
+        >
+          Hushåll
+        </button>
+        {openFolder && (
+          <>
+            <ChevronRight className="h-3.5 w-3.5" />
+            <span className="text-foreground font-medium">
+              {FOLDERS.find(f => f.key === openFolder)?.label ?? openFolder}
+            </span>
+          </>
+        )}
+      </div>
 
       {(() => {
-        const filtered = typeFilter === "all"
-          ? items
-          : items.filter(h => (h.household_type ?? "training") === typeFilter);
-
         if (loading) return <div className="text-sm text-muted-foreground">Laddar…</div>;
-        if (items.length === 0) return (
-          <Card className="p-12 text-center">
-            <Home className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
-            <p className="text-sm text-muted-foreground mb-4">Inga hushåll ännu</p>
-            <Button onClick={openCreate} className="gap-2">
-              <Plus className="h-4 w-4" /> Skapa det första
-            </Button>
-          </Card>
-        );
-        if (filtered.length === 0) return (
-          <Card className="p-10 text-center text-sm text-muted-foreground">
-            Inga hushåll i denna kategori.
-          </Card>
-        );
-        return (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filtered.map(h => {
-            const ev = evModels.find(e => e.id === h.ev_model_id);
-            const meta = householdTypeMeta(h.household_type);
-            return (
-              <Card key={h.id} className="p-5 space-y-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="font-semibold text-lg leading-tight">{h.name}</h3>
-                      <Badge className={`text-[10px] rounded-full ${meta.className}`}>{meta.label}</Badge>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {h.grid_company ?? "Inget nätbolag"} · {h.price_area} · {h.house_type ?? "—"} {h.area_m2 ? `${h.area_m2}m²` : ""}
-                    </p>
-                    {h.grid_company && tariffs[h.grid_company] != null && (
-                      <p className="text-[11px] text-muted-foreground mt-0.5">
-                        Effekttariff: {tariffs[h.grid_company]} SEK/kW/månad
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex gap-1 shrink-0">
-                    <Button variant="ghost" size="icon" onClick={() => openEdit(h)} title="Redigera">
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" onClick={() => setConfirmDelete(h)} title="Ta bort">
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
-                  </div>
-                </div>
 
-                <div className="space-y-2 text-sm">
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Zap className="h-3.5 w-3.5" />
-                    <span>Säkring {h.fuse_amps ?? 20}A · {h.annual_kwh?.toLocaleString("sv-SE") ?? "—"} kWh/år</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Car className="h-3.5 w-3.5" />
-                    <span>{ev ? `${ev.brand} ${ev.model}` : "Ingen bil"}</span>
-                    {ev?.ccs2_port && <Badge variant="secondary" className="text-[10px]">CCS2</Badge>}
-                  </div>
-                  {h.notes && (
-                    <p className="text-[11px] text-muted-foreground/80 italic line-clamp-2 pt-1">{h.notes}</p>
-                  )}
-                </div>
+        // ====== ROOT VIEW: folder cards ======
+        if (!openFolder) {
+          return (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {FOLDERS.map(f => {
+                const inFolder = items.filter(h => (h.household_type ?? "training") === f.key);
+                const totalSims = inFolder.reduce((s, h) => s + (simCounts[h.id] ?? 0), 0);
+                const meta = householdTypeMeta(f.key);
+                return (
+                  <button
+                    key={f.key}
+                    onClick={() => setOpenFolder(f.key)}
+                    className="text-left group"
+                  >
+                    <Card className="p-6 transition-all hover:shadow-md hover:border-primary/30 h-full">
+                      <div className="flex items-start justify-between gap-3">
+                        <FolderOpen className={`h-10 w-10 ${f.accent}`} />
+                        <Badge className={`text-[10px] rounded-full ${meta.className}`}>{meta.label}</Badge>
+                      </div>
+                      <h3 className="font-semibold text-lg mt-4">{f.label}</h3>
+                      <p className="text-xs text-muted-foreground mt-1">{f.description}</p>
+                      <div className="flex items-end justify-between mt-5 pt-4 border-t border-border/60">
+                        <div>
+                          <div className="text-2xl font-semibold tabular-nums">{inFolder.length}</div>
+                          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">hushåll</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-2xl font-semibold tabular-nums">{totalSims}</div>
+                          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">simuleringar</div>
+                        </div>
+                      </div>
+                    </Card>
+                  </button>
+                );
+              })}
+            </div>
+          );
+        }
+
+        // ====== FOLDER DETAIL VIEW ======
+        const filtered = items.filter(h => (h.household_type ?? "training") === openFolder);
+        return (
+          <div className="space-y-4">
+            <Button variant="ghost" size="sm" className="gap-1 -ml-2" onClick={() => setOpenFolder(null)}>
+              <ChevronLeft className="h-4 w-4" /> Tillbaka till mappar
+            </Button>
+
+            {filtered.length === 0 ? (
+              <Card className="p-10 text-center text-sm text-muted-foreground">
+                Inga hushåll i denna mapp ännu.
               </Card>
-            );
-          })}
-        </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filtered.map(h => {
+                  const ev = evModels.find(e => e.id === h.ev_model_id);
+                  const meta = householdTypeMeta(h.household_type);
+                  return (
+                    <Card key={h.id} className="p-5 space-y-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="font-semibold text-lg leading-tight">{h.name}</h3>
+                            <Badge className={`text-[10px] rounded-full ${meta.className}`}>{meta.label}</Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {h.grid_company ?? "Inget nätbolag"} · {h.price_area} · {h.house_type ?? "—"} {h.area_m2 ? `${h.area_m2}m²` : ""}
+                          </p>
+                          {h.grid_company && tariffs[h.grid_company] != null && (
+                            <p className="text-[11px] text-muted-foreground mt-0.5">
+                              Effekttariff: {tariffs[h.grid_company]} SEK/kW/månad
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex gap-1 shrink-0">
+                          <Button variant="ghost" size="icon" onClick={() => openEdit(h)} title="Redigera">
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={() => setConfirmDelete(h)} title="Ta bort">
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2 text-sm">
+                        <div className="flex items-center gap-2 text-muted-foreground">
+                          <Zap className="h-3.5 w-3.5" />
+                          <span>Säkring {h.fuse_amps ?? 20}A · {h.annual_kwh?.toLocaleString("sv-SE") ?? "—"} kWh/år</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-muted-foreground">
+                          <Car className="h-3.5 w-3.5" />
+                          <span>{ev ? `${ev.brand} ${ev.model}` : "Ingen bil"}</span>
+                          {ev?.ccs2_port && <Badge variant="secondary" className="text-[10px]">CCS2</Badge>}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {simCounts[h.id] ?? 0} simuleringar
+                        </div>
+                        {h.notes && (
+                          <p className="text-[11px] text-muted-foreground/80 italic line-clamp-2 pt-1">{h.notes}</p>
+                        )}
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         );
       })()}
 
