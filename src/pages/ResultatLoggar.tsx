@@ -16,7 +16,7 @@ import EventTimeline from "@/components/EventTimeline";
 import HouseholdProfile from "@/pages/HouseholdProfile";
 import { cn } from "@/lib/utils";
 import { modeLabel } from "@/lib/optimizationModes";
-import { HOUSEHOLD_TYPE_FILTERS, householdTypeMeta, type HouseholdType } from "@/lib/householdTypes";
+import { householdTypeMeta, type HouseholdType } from "@/lib/householdTypes";
 
 type View = "all" | "households" | "logs";
 
