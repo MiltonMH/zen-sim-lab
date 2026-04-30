@@ -667,7 +667,14 @@ Deno.serve(async (req) => {
       total_cost_with_tariff: round2(totalCostWithTariff),
       total_saved_including_tariff: round2(savingsIncludingTariff),
       total_events: eventsBatch.length,
-      warnings: Object.keys(warnings).length > 0 ? warnings : null,
+      warnings: (() => {
+        const w = { ...warnings } as Record<string, unknown>;
+        if (partialSimulation) {
+          w.partial_simulation = true;
+          w.partial_reason = `Soft timeout efter ${daysProcessed}/${sortedDays.length} dagar — partiella resultat sparade.`;
+        }
+        return Object.keys(w).length > 0 ? w : null;
+      })(),
       ended_at: new Date().toISOString(),
     }).eq("id", simulation_id);
 
