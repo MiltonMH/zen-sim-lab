@@ -681,7 +681,9 @@ Deno.serve(async (req) => {
     return json({
       mode,
       ccs2_port: ccs2Port,
-      days_processed: sortedDays.length,
+      days_processed: daysProcessed,
+      total_days_requested: sortedDays.length,
+      partial_simulation: partialSimulation,
       total_kwh_charged: round2(totalKwhCharged),
       total_saved_sek: round2(totalSaved),
       price_savings_sek: round2(priceSavings),
