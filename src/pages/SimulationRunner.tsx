@@ -714,11 +714,25 @@ function DateRangeField({
         </PopoverContent>
       </Popover>
       {!compact && (
-        <p className="text-xs text-muted-foreground">
-          {bounds
-            ? `Prisdata tillgänglig: ${format(bounds.min, "yyyy-MM-dd")} – ${format(bounds.max, "yyyy-MM-dd")}`
-            : "Laddar tillgängligt datumintervall…"}
-        </p>
+        <>
+          <p className="text-xs text-muted-foreground">
+            {bounds
+              ? `Prisdata tillgänglig: ${format(bounds.min, "yyyy-MM-dd")} – ${format(bounds.max, "yyyy-MM-dd")}`
+              : "Laddar tillgängligt datumintervall…"}
+          </p>
+          {(() => {
+            if (!range?.from || !range?.to) return null;
+            const days = Math.max(1, Math.round((range.to.getTime() - range.from.getTime()) / 86_400_000) + 1);
+            if (days < 60) return null;
+            const eta = Math.round(days * 0.12); // ~45s för 365 dagar
+            const label = days >= 360 ? "för ett helt år" : `för ${days} dagar`;
+            return (
+              <p className="text-xs text-amber-600">
+                Beräknad tid: ~{eta} sekunder {label}
+              </p>
+            );
+          })()}
+        </>
       )}
     </div>
   );
