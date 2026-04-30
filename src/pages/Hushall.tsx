@@ -77,7 +77,7 @@ const empty: Partial<Household> = {
   battery_kwh: null,
   daily_km: 40,
   commuter_type: "pendlare",
-  household_type: "training",
+  household_type: "seed",
   data_quality: "verified",
   notes: "",
   created_by: "manual",
@@ -464,7 +464,7 @@ export default function Hushall() {
               <div>
                 <Label>Typ</Label>
                 <Select
-                  value={(editing.household_type as string) ?? "training"}
+                  value={(editing.household_type as string) ?? "seed"}
                   onValueChange={v => set("household_type", v)}
                 >
                   <SelectTrigger><SelectValue /></SelectTrigger>
@@ -474,6 +474,18 @@ export default function Hushall() {
                     <SelectItem value="real">Riktig kund</SelectItem>
                   </SelectContent>
                 </Select>
+                {(() => {
+                  const t = (editing.household_type as string) ?? "seed";
+                  const label =
+                    t === "seed" ? "Seed-data"
+                    : t === "training" ? "Träningsdata"
+                    : "Kunddata";
+                  return (
+                    <Badge className="mt-2 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-transparent">
+                      Taggas som: {label}
+                    </Badge>
+                  );
+                })()}
               </div>
               <div>
                 <Label>Datakvalitet</Label>
