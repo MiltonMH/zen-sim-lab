@@ -16,7 +16,7 @@ import EventTimeline from "@/components/EventTimeline";
 import HouseholdProfile from "@/pages/HouseholdProfile";
 import { cn } from "@/lib/utils";
 import { modeLabel } from "@/lib/optimizationModes";
-import { HOUSEHOLD_TYPE_FILTERS, householdTypeMeta, type HouseholdType } from "@/lib/householdTypes";
+import { householdTypeMeta, type HouseholdType } from "@/lib/householdTypes";
 
 type View = "all" | "households" | "logs";
 
@@ -297,9 +297,16 @@ function PerHouseholdTab({
   households: HouseholdCardData[];
   onOpenHousehold: (id: string) => void;
 }) {
-  const [typeFilter, setTypeFilter] = useState<"all" | HouseholdType>("all");
+  const [openFolder, setOpenFolder] = useState<HouseholdType | null>(null);
 
-  const grouped = useMemo(() => {
+  const FOLDERS: Array<{ key: HouseholdType; label: string; description: string; accent: string }> = [
+    { key: "seed",     label: "Seed Testing",   description: "Manuellt skapade referenshushåll", accent: "text-muted-foreground" },
+    { key: "training", label: "Training Data",  description: "Genererade hushåll för ML-träning", accent: "text-sky-600 dark:text-sky-400" },
+    { key: "real",     label: "Real Customers", description: "Riktiga kundhushåll i drift",       accent: "text-emerald-600 dark:text-emerald-400" },
+  ];
+
+  // Per-household aggregates
+  const enriched = useMemo(() => {
     const g = new Map<string, SimRow[]>();
     sims.forEach((s) => {
       if (!s.household_id) return;
@@ -307,128 +314,179 @@ function PerHouseholdTab({
       arr.push(s);
       g.set(s.household_id, arr);
     });
-    return households
-      .filter((hh) => typeFilter === "all" || (hh.household_type ?? "training") === typeFilter)
-      .map((hh) => {
-        const rows = (g.get(hh.id) ?? []).sort((a, b) => (a.started_at ?? "").localeCompare(b.started_at ?? ""));
-        const totalSaved = rows.reduce((a, r) => a + Number(r.total_saved_sek ?? 0), 0);
-        const totalV2h = rows.reduce((a, r) => a + Number(r.total_v2h_saving_sek ?? 0), 0);
-        const avg = rows.length ? totalSaved / rows.length : 0;
-        const last10 = rows.slice(-10).map((r, i) => ({ i, v: Number(r.total_saved_sek ?? 0) }));
-        const trendUp = last10.length >= 2 && last10[last10.length - 1].v >= last10[0].v;
-        return {
-          ...hh,
-          rows,
-          totalSaved,
-          totalV2h,
-          avg,
-          last10,
-          trendUp,
-        };
-      })
-      .filter((h) => h.rows.length > 0)
-      .sort((a, b) => b.totalSaved - a.totalSaved);
-  }, [sims, households, typeFilter]);
+    return households.map((hh) => {
+      const rows = (g.get(hh.id) ?? []).sort((a, b) => (a.started_at ?? "").localeCompare(b.started_at ?? ""));
+      const totalSaved = rows.reduce((a, r) => a + Number(r.total_saved_sek ?? 0), 0);
+      const totalV2h = rows.reduce((a, r) => a + Number(r.total_v2h_saving_sek ?? 0), 0);
+      const avg = rows.length ? totalSaved / rows.length : 0;
+      const last10 = rows.slice(-10).map((r, i) => ({ i, v: Number(r.total_saved_sek ?? 0) }));
+      const trendUp = last10.length >= 2 && last10[last10.length - 1].v >= last10[0].v;
+      return { ...hh, rows, totalSaved, totalV2h, avg, last10, trendUp };
+    });
+  }, [sims, households]);
 
-  const filterTabs = (
-    <Tabs value={typeFilter} onValueChange={(v) => setTypeFilter(v as "all" | HouseholdType)}>
-      <TabsList className="rounded-full bg-muted p-1">
-        {HOUSEHOLD_TYPE_FILTERS.map((f) => {
-          const count = f.value === "all"
-            ? households.length
-            : households.filter(h => (h.household_type ?? "training") === f.value).length;
-          return (
-            <TabsTrigger key={f.value} value={f.value} className="rounded-full px-4 gap-2">
-              {f.label} <span className="text-[11px] text-muted-foreground tabular-nums">({count})</span>
-            </TabsTrigger>
-          );
-        })}
-      </TabsList>
-    </Tabs>
+  // Folder summaries
+  const folderStats = useMemo(() => {
+    const stats: Record<string, { count: number; sims: number; totalSaved: number }> = {};
+    for (const f of FOLDERS) stats[f.key] = { count: 0, sims: 0, totalSaved: 0 };
+    for (const h of enriched) {
+      const t = (h.household_type ?? "training") as HouseholdType;
+      if (!stats[t]) continue;
+      stats[t].count += 1;
+      stats[t].sims += h.rows.length;
+      stats[t].totalSaved += h.totalSaved;
+    }
+    return stats;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enriched]);
+
+  const breadcrumb = (
+    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+      <button
+        onClick={() => setOpenFolder(null)}
+        className={openFolder ? "hover:text-foreground transition-colors" : "text-foreground font-medium"}
+      >
+        Per hushåll
+      </button>
+      {openFolder && (
+        <>
+          <span className="text-muted-foreground">›</span>
+          <span className="text-foreground font-medium">
+            {FOLDERS.find(f => f.key === openFolder)?.label ?? openFolder}
+          </span>
+        </>
+      )}
+    </div>
   );
 
-  if (grouped.length === 0) {
+  // ====== ROOT VIEW ======
+  if (!openFolder) {
     return (
       <div className="space-y-4">
-        {filterTabs}
-        <Card className="rounded-2xl border-border/60 shadow-card p-10 text-center text-sm text-muted-foreground">
-          Inga simuleringar i denna kategori.
-        </Card>
+        {breadcrumb}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {FOLDERS.map(f => {
+            const s = folderStats[f.key];
+            const meta = householdTypeMeta(f.key);
+            return (
+              <button key={f.key} onClick={() => setOpenFolder(f.key)} className="text-left group">
+                <Card className="rounded-2xl border-border/60 shadow-card p-6 transition-all hover:shadow-md hover:border-primary/30 h-full">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className={cn("text-3xl", f.accent)}>📁</div>
+                    <Badge className={cn("text-[10px] rounded-full", meta.className)}>{meta.label}</Badge>
+                  </div>
+                  <h3 className="font-semibold text-lg mt-4">{f.label}</h3>
+                  <p className="text-xs text-muted-foreground mt-1">{f.description}</p>
+                  <div className="grid grid-cols-3 gap-3 mt-5 pt-4 border-t border-border/60">
+                    <div>
+                      <div className="text-lg font-semibold tabular-nums">{s.count}</div>
+                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">hushåll</div>
+                    </div>
+                    <div>
+                      <div className="text-lg font-semibold tabular-nums">{s.sims}</div>
+                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">simuleringar</div>
+                    </div>
+                    <div>
+                      <div className="text-lg font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">{fmtSek(s.totalSaved, 0)}</div>
+                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">sparat</div>
+                    </div>
+                  </div>
+                </Card>
+              </button>
+            );
+          })}
+        </div>
       </div>
     );
   }
 
+  // ====== FOLDER DETAIL ======
+  const grouped = enriched
+    .filter((h) => (h.household_type ?? "training") === openFolder)
+    .filter((h) => h.rows.length > 0)
+    .sort((a, b) => b.totalSaved - a.totalSaved);
+
   return (
     <div className="space-y-4">
-      {filterTabs}
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      {grouped.map((g) => {
-        const carText = g.ev_brand
-          ? `${g.ev_brand} ${g.ev_model}${g.ev_battery ? ` | ${g.ev_battery} kWh` : ""}`
-          : g.car_model
-            ? `${g.car_model}${g.battery_kwh ? ` | ${g.battery_kwh} kWh` : ""}`
-            : "Bil okänd";
-        const meta = [
-          g.house_type && g.area_m2 ? `${cap(g.house_type)} ${g.area_m2}m²` : g.house_type ? cap(g.house_type) : null,
-          g.price_area,
-          g.heating_type ? cap(g.heating_type) : null,
-        ].filter(Boolean).join(" | ");
-        return (
-          <button
-            key={g.id}
-            onClick={() => onOpenHousehold(g.id)}
-            className="text-left group"
-          >
-            <Card className="rounded-2xl border-border/60 shadow-card p-5 transition-all hover:shadow-md hover:border-primary/30">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <div className="text-base font-semibold tracking-tight truncate">{g.name}</div>
-                    {(() => {
-                      const tm = householdTypeMeta(g.household_type);
-                      return <Badge className={`text-[10px] rounded-full ${tm.className}`}>{tm.label}</Badge>;
-                    })()}
+      {breadcrumb}
+      <Button variant="ghost" size="sm" className="gap-1 -ml-2" onClick={() => setOpenFolder(null)}>
+        ‹ Tillbaka till mappar
+      </Button>
+
+      {grouped.length === 0 ? (
+        <Card className="rounded-2xl border-border/60 shadow-card p-10 text-center text-sm text-muted-foreground">
+          Inga simuleringar för hushåll i denna mapp.
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {grouped.map((g) => {
+            const carText = g.ev_brand
+              ? `${g.ev_brand} ${g.ev_model}${g.ev_battery ? ` | ${g.ev_battery} kWh` : ""}`
+              : g.car_model
+                ? `${g.car_model}${g.battery_kwh ? ` | ${g.battery_kwh} kWh` : ""}`
+                : "Bil okänd";
+            const meta = [
+              g.house_type && g.area_m2 ? `${cap(g.house_type)} ${g.area_m2}m²` : g.house_type ? cap(g.house_type) : null,
+              g.price_area,
+              g.heating_type ? cap(g.heating_type) : null,
+            ].filter(Boolean).join(" | ");
+            return (
+              <button
+                key={g.id}
+                onClick={() => onOpenHousehold(g.id)}
+                className="text-left group"
+              >
+                <Card className="rounded-2xl border-border/60 shadow-card p-5 transition-all hover:shadow-md hover:border-primary/30">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <div className="text-base font-semibold tracking-tight truncate">{g.name}</div>
+                        {(() => {
+                          const tm = householdTypeMeta(g.household_type);
+                          return <Badge className={`text-[10px] rounded-full ${tm.className}`}>{tm.label}</Badge>;
+                        })()}
+                      </div>
+                      <div className="text-[12px] text-muted-foreground mt-0.5 truncate">{meta || "—"}</div>
+                      <div className="text-[12px] text-muted-foreground truncate">{carText}</div>
+                    </div>
+                    {g.ccs2_port !== false && (
+                      <Badge className="rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-transparent shrink-0">CCS2</Badge>
+                    )}
                   </div>
-                  <div className="text-[12px] text-muted-foreground mt-0.5 truncate">{meta || "—"}</div>
-                  <div className="text-[12px] text-muted-foreground truncate">{carText}</div>
-                </div>
-                {g.ccs2_port !== false && (
-                  <Badge className="rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-transparent shrink-0">CCS2</Badge>
-                )}
-              </div>
 
-              <div className="border-t border-border/60 my-4" />
+                  <div className="border-t border-border/60 my-4" />
 
-              <div className="grid grid-cols-2 gap-x-6 gap-y-3">
-                <CardStat label="Snittbesparing" value={`${g.avg.toLocaleString("sv-SE", { maximumFractionDigits: 2 })} SEK/sim`} />
-                <CardStat label="Total sparat" value={fmtSek(g.totalSaved, 0)} accent="emerald" />
-                <CardStat label="V2H sparat" value={fmtSek(g.totalV2h, 0)} accent="sky" />
-                <CardStat label="Simuleringar" value={`${g.rows.length} st`} />
-              </div>
-
-              {g.last10.length >= 2 && (
-                <div className="mt-4">
-                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Trend (senaste {g.last10.length})</div>
-                  <div className="h-10">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={g.last10}>
-                        <Line
-                          type="monotone"
-                          dataKey="v"
-                          stroke={g.trendUp ? "hsl(142 71% 45%)" : "hsl(var(--muted-foreground))"}
-                          strokeWidth={1.75}
-                          dot={false}
-                        />
-                      </LineChart>
-                    </ResponsiveContainer>
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+                    <CardStat label="Snittbesparing" value={`${g.avg.toLocaleString("sv-SE", { maximumFractionDigits: 2 })} SEK/sim`} />
+                    <CardStat label="Total sparat" value={fmtSek(g.totalSaved, 0)} accent="emerald" />
+                    <CardStat label="V2H sparat" value={fmtSek(g.totalV2h, 0)} accent="sky" />
+                    <CardStat label="Simuleringar" value={`${g.rows.length} st`} />
                   </div>
-                </div>
-              )}
-            </Card>
-          </button>
-        );
-      })}
-    </div>
+
+                  {g.last10.length >= 2 && (
+                    <div className="mt-4">
+                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Trend (senaste {g.last10.length})</div>
+                      <div className="h-10">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={g.last10}>
+                            <Line
+                              type="monotone"
+                              dataKey="v"
+                              stroke={g.trendUp ? "hsl(142 71% 45%)" : "hsl(var(--muted-foreground))"}
+                              strokeWidth={1.75}
+                              dot={false}
+                            />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  )}
+                </Card>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
