@@ -98,23 +98,32 @@ const GRID_COMPANIES_BY_AREA: Record<string, string[]> = {
   SE4: ["Kraftringen Nät"],
 };
 
+// Folder definitions for the root view
+const FOLDERS: Array<{ key: HouseholdType; label: string; description: string; accent: string }> = [
+  { key: "seed",     label: "Seed Testing",   description: "Manuellt skapade referenshushåll", accent: "text-muted-foreground" },
+  { key: "training", label: "Training Data",  description: "Genererade hushåll för ML-träning", accent: "text-sky-700 dark:text-sky-400" },
+  { key: "real",     label: "Real Customers", description: "Riktiga kundhushåll i drift",       accent: "text-emerald-700 dark:text-emerald-400" },
+];
+
 export default function Hushall() {
   const [items, setItems] = useState<Household[]>([]);
   const [evModels, setEvModels] = useState<EvModel[]>([]);
   const [tariffs, setTariffs] = useState<Record<string, number>>({});
+  const [simCounts, setSimCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Partial<Household> | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Household | null>(null);
   const [saving, setSaving] = useState(false);
-  const [typeFilter, setTypeFilter] = useState<"all" | HouseholdType>("all");
+  const [openFolder, setOpenFolder] = useState<HouseholdType | null>(null);
 
   const load = async () => {
     setLoading(true);
-    const [{ data: hh }, { data: ev }, { data: gcs }] = await Promise.all([
+    const [{ data: hh }, { data: ev }, { data: gcs }, { data: sims }] = await Promise.all([
       supabase.from("household_profiles").select("*").order("name"),
       supabase.from("ev_models").select("id,brand,model,battery_kwh,ccs2_port").order("brand").order("model"),
       supabase.from("grid_company_settings").select("grid_company, peak_tariff_sek_per_kw"),
+      supabase.from("simulation_runs").select("household_id"),
     ]);
     setItems((hh ?? []) as Household[]);
     setEvModels((ev ?? []) as EvModel[]);
@@ -123,6 +132,11 @@ export default function Hushall() {
       map[r.grid_company] = Number(r.peak_tariff_sek_per_kw);
     }
     setTariffs(map);
+    const counts: Record<string, number> = {};
+    for (const r of (sims ?? []) as { household_id: string | null }[]) {
+      if (r.household_id) counts[r.household_id] = (counts[r.household_id] ?? 0) + 1;
+    }
+    setSimCounts(counts);
     setLoading(false);
   };
 
