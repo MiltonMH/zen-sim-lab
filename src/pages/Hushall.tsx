@@ -79,6 +79,8 @@ const empty: Partial<Household> = {
   battery_kwh: null,
   daily_km: 40,
   commuter_type: "pendlare",
+  min_soc_pct: 40,
+  max_soc_pct: 80,
   household_type: "seed",
   data_quality: "verified",
   notes: "",
