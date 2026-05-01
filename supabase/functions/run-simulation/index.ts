@@ -90,6 +90,9 @@ Deno.serve(async (req) => {
     const fuseAmps = Number(hh.fuse_amps) || 20;
     // 3-phase Swedish residential: kW = A * 0.23 * 3
     const fuseMaxKw = fuseAmps * 0.23 * 3;
+    // Customer-configurable SoC limits (defaults: 40 / 80)
+    const householdMinSoc = clamp(num(hh.min_soc_pct, DEFAULT_MIN_SOC), 10, 70);
+    const householdMaxSoc = clamp(num(hh.max_soc_pct, DEFAULT_MAX_SOC), 50, 100);
 
     // --- Scenario parameters ---
     const sp = (sim.scenario_params ?? {}) as Record<string, number>;
