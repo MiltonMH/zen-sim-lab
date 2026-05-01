@@ -364,26 +364,20 @@ Deno.serve(async (req) => {
         const fuseAvailableKw = Math.max(0, fuseMaxKw - hourConsKw);
         const effectiveChargeKw = Math.min(chargeMaxKw, fuseAvailableKw);
 
-        // Battery-health caps (smart_v2x only)
-        const upperSocCap = mode === "smart_v2x" ? SOC_PREFERRED_MAX : SOC_PROTECT;
-        const v2hSocFloor = mode === "smart_v2x" ? SOC_V2H_FLOOR : Math.max(minSoc, 35);
+        // SoC bounds — smart_v2x uses customer-configured min/max; legacy modes use defaults.
+        const upperSocCap = mode === "smart_v2x" ? householdMaxSoc : SOC_PROTECT;
+        const v2hSocFloor = mode === "smart_v2x" ? householdMinSoc : Math.max(minSoc, 35);
 
-        // Smart V2H decision: scale power by spot price
-        // Tröskel beror på prisområde (SE1 har lägre snittpriser än SE3/SE4)
-        const v2hMinPrice = V2H_THRESHOLDS[priceArea] ?? V2H_THRESHOLDS.SE3;
-        const v2hSpreadOk = h.price > dailyAvgPrice * V2H_DAILY_SPREAD_MULTIPLIER;
-        const v2hHardOverride = h.price > V2H_HARD_OVERRIDE_PRICE && soc > SOC_V2H_FLOOR;
-        const smartV2hKw = (() => {
-          if (v2hHardOverride) return v2hMaxKw;
-          if (h.price <= v2hMinPrice) return 0;
-          if (!v2hSpreadOk) return 0; // dagens prisspridning är för liten
-          // Skala effekt linjärt från låg → hög utöver tröskeln
-          const over = h.price - v2hMinPrice;
-          if (over > 1.2) return v2hMaxKw;                    // full uteffekt
-          if (over > 0.7) return Math.min(9, v2hMaxKw);
-          if (over > 0.3) return Math.min(7, v2hMaxKw);
-          return Math.min(5, v2hMaxKw);
-        })();
+        // Universal V2H power scaling — based on today's price percentile.
+        const fuseHeadroomKw = Math.max(0, fuseMaxKw - hourConsKw);
+        const v2hPowerForPercentile = (pct: number): number => {
+          let target: number;
+          if (pct >= 0.90) target = 11;
+          else if (pct >= 0.75) target = 9;
+          else if (pct >= 0.60) target = 7;
+          else target = 5;
+          return Math.min(target, v2hMaxKw, fuseHeadroomKw);
+        };
 
         if (!connected) {
           decision = "pause";
@@ -395,52 +389,95 @@ Deno.serve(async (req) => {
           decision = "emergency_charge";
           chargeKw = effectiveChargeKw;
           reason = "soc_below_min_emergency";
-        } else if (soc > upperSocCap) {
+        } else if (mode === "smart_v2x" && soc >= upperSocCap) {
           decision = "pause";
-          reason = mode === "smart_v2x"
-            ? "battery_health_stop_at_80"
-            : "soc_above_protect";
-        } else if (h.price < TOO_CHEAP_PRICE) {
-          decision = "charge";
-          chargeKw = effectiveChargeKw;
-          reason = "too_cheap_to_ignore";
+          reason = `max_soc_reached: ${soc.toFixed(0)}% at ceiling`;
+        } else if (mode !== "smart_v2x" && soc > upperSocCap) {
+          decision = "pause";
+          reason = "soc_above_protect";
         } else if (h.price > priceThreshold) {
           decision = "pause";
           reason = `spot_above_${priceThreshold}sek_blocked`;
           if (pickedCharge.has(h.idx)) peakHoursAvoided++;
         }
-        // V2H — smart_v2x: aktivera VARJE kväll bilen är hemma och prisvillkor möts
+        // === Universal smart_v2x engine: percentile-based ===
+        else if (mode === "smart_v2x") {
+          const isCheap = h.price <= cheapThreshold;
+          const isExpensive = !flatPriceDay && h.price >= expensiveThreshold;
+          const houseConsumingNow = hourConsKw > 0.2;
+
+          if (
+            v2hAllowed && isExpensive &&
+            soc > v2hSocFloor &&
+            houseConsumingNow &&
+            fuseHeadroomKw > 1 &&
+            !reservedRechargeIsos.has(h.iso)
+          ) {
+            const pct = pricePercentile(h.price);
+            const dischargeKw = v2hPowerForPercentile(pct);
+            if (dischargeKw > 0) {
+              decision = "v2h";
+              chargeKw = -dischargeKw;
+              v2hSaving = dischargeKw * totalCostPerKwh;
+              gridDrawKw = Math.max(0, hourConsKw - dischargeKw);
+              reason = `v2h_expensive_hour: ${h.price.toFixed(3)} SEK above ${expensiveThreshold.toFixed(3)}`;
+              totalV2hKwh += dischargeKw;
+              totalV2hSavingSek += v2hSaving;
+            } else {
+              decision = "pause";
+              reason = "v2h_no_headroom";
+            }
+          } else if (isCheap && soc < upperSocCap) {
+            // Effekttariff guardrail
+            const projectedGridKw = hourConsKw + effectiveChargeKw;
+            const currentMonthlyPeak = monthlyPeak.get(monthKey) ?? 0;
+            if (
+              hasPeakTariff &&
+              projectedGridKw > currentMonthlyPeak &&
+              (projectedGridKw - currentMonthlyPeak) * peakTariffPerKw >
+                Math.max(0, (priceThreshold - h.price) * effectiveChargeKw)
+            ) {
+              decision = "pause";
+              reason = peakTariffMissing
+                ? "peak_tariff_avoided | Effekttariff: standardvärde använt (bolag ej registrerat)"
+                : "peak_tariff_avoided";
+              peaksAvoidedCount++;
+              pushEvent({
+                occurred_at: h.iso,
+                event_type: "peak_demand_avoided",
+                value_kw: projectedGridKw - currentMonthlyPeak,
+                reason: `Effekttariff: undvek ny topp +${(projectedGridKw - currentMonthlyPeak).toFixed(1)} kW`,
+              });
+            } else {
+              decision = "charge";
+              chargeKw = effectiveChargeKw;
+              reason = `charge_cheap_hour: ${h.price.toFixed(3)} SEK below ${cheapThreshold.toFixed(3)}`;
+              if (projectedGridKw > currentMonthlyPeak) monthlyPeak.set(monthKey, projectedGridKw);
+            }
+          } else if (flatPriceDay && pickedCharge.has(h.idx)) {
+            decision = "charge";
+            chargeKw = effectiveChargeKw;
+            reason = "flat_price_day_no_v2h";
+          } else {
+            decision = "pause";
+            reason = flatPriceDay
+              ? "flat_price_day_no_v2h"
+              : `pause_middle_price: ${h.price.toFixed(3)} SEK between thresholds`;
+          }
+        }
+        // === Legacy smart_charge / smart_charge_basic ===
+        else if (h.price < TOO_CHEAP_PRICE) {
+          decision = "charge";
+          chargeKw = effectiveChargeKw;
+          reason = "too_cheap_to_ignore";
+        }
         else if (
-          v2hAllowed && mode === "smart_v2x" &&
-          soc > SOC_V2H_FLOOR &&
-          (
-            v2hHardOverride ||
-            (
-              smartV2hKw > 0 &&
-              h.hourOfDay >= 16 && h.hourOfDay < 22 &&
-              (h.price > v2hMinPrice || h.price > dailyAvgPrice * V2H_DAILY_SPREAD_MULTIPLIER) &&
-              (fuseMaxKw - hourConsKw) > 2
-            )
-          )
-        ) {
-          const fuseHeadroomKw = Math.max(0, fuseMaxKw - hourConsKw);
-          const baseKw = smartV2hKw > 0 ? smartV2hKw : v2hMaxKw;
-          const dischargeKw = Math.min(baseKw, v2hMaxKw, fuseHeadroomKw);
-          decision = "v2h";
-          chargeKw = -dischargeKw;
-          v2hSaving = dischargeKw * totalCostPerKwh;
-          gridDrawKw = Math.max(0, hourConsKw - dischargeKw);
-          reason = v2hHardOverride ? "v2h_hard_override_high_price" : "smart_v2h_price_scaled";
-          totalV2hKwh += dischargeKw;
-          totalV2hSavingSek += v2hSaving;
-        } else if (
           v2hAllowed && mode === "smart_charge" &&
           PEAK_HOURS.has(h.hourOfDay) &&
           h.price > 1.0 &&
-          h.price > dailyAvgPrice * V2H_DAILY_SPREAD_MULTIPLIER &&
+          h.price > dailyAvgPrice * 1.2 &&
           soc > 40
         ) {
-          const fuseHeadroomKw = Math.max(0, fuseMaxKw - hourConsKw);
           const dischargeKw = Math.min(7, v2hMaxKw, fuseHeadroomKw);
           decision = "v2h";
           chargeKw = -dischargeKw;
@@ -450,47 +487,10 @@ Deno.serve(async (req) => {
           totalV2hKwh += dischargeKw;
           totalV2hSavingSek += v2hSaving;
         }
-        // Combined-score / cheapest selection
         else if (pickedCharge.has(h.idx)) {
-          // Effekttariff guardrail (smart_v2x only)
-          if (mode === "smart_v2x" && hasPeakTariff) {
-            const projectedGridKw = hourConsKw + effectiveChargeKw;
-            const currentMonthlyPeak = monthlyPeak.get(monthKey) ?? 0;
-            if (projectedGridKw > currentMonthlyPeak) {
-              const extraPeakKw = projectedGridKw - currentMonthlyPeak;
-              const extraMonthlyCost = extraPeakKw * peakTariffPerKw;
-              // What we save by charging this hour vs not: roughly (priceThreshold - h.price) * kWh
-              const priceSaving = Math.max(0, (priceThreshold - h.price) * effectiveChargeKw);
-              if (extraMonthlyCost > priceSaving) {
-                decision = "pause";
-                reason = peakTariffMissing
-                  ? "peak_tariff_avoided | Effekttariff: standardvärde använt (bolag ej registrerat)"
-                  : "peak_tariff_avoided";
-                peaksAvoidedCount++;
-                // peak_demand_saving_sek beräknas post-loop från baseline-jämförelse
-                pushEvent({
-                  occurred_at: h.iso,
-                  event_type: "peak_demand_avoided",
-                  value_kw: extraPeakKw,
-                  value_sek_impact: round2(extraMonthlyCost - priceSaving),
-                  reason: `Effekttariff: undvek ny topp +${extraPeakKw.toFixed(1)} kW`,
-                });
-              } else {
-                decision = "charge";
-                chargeKw = effectiveChargeKw;
-                reason = "best_combined_score";
-                monthlyPeak.set(monthKey, projectedGridKw);
-              }
-            } else {
-              decision = "charge";
-              chargeKw = effectiveChargeKw;
-              reason = "best_combined_score";
-            }
-          } else {
-            decision = "charge";
-            chargeKw = effectiveChargeKw;
-            reason = mode === "smart_charge_basic" ? "cheapest_8_hours" : "best_combined_score";
-          }
+          decision = "charge";
+          chargeKw = effectiveChargeKw;
+          reason = mode === "smart_charge_basic" ? "cheapest_8_hours" : "best_combined_score";
         } else {
           decision = "pause";
           reason = h.weight >= maxWeight * 0.8 ? "house_peak_consumption" : "lower_score";
