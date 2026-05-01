@@ -346,7 +346,9 @@ Deno.serve(async (req) => {
         // Tröskel beror på prisområde (SE1 har lägre snittpriser än SE3/SE4)
         const v2hMinPrice = V2H_THRESHOLDS[priceArea] ?? V2H_THRESHOLDS.SE3;
         const v2hSpreadOk = h.price > dailyAvgPrice * V2H_DAILY_SPREAD_MULTIPLIER;
+        const v2hHardOverride = h.price > V2H_HARD_OVERRIDE_PRICE && soc > SOC_V2H_FLOOR;
         const smartV2hKw = (() => {
+          if (v2hHardOverride) return v2hMaxKw;
           if (h.price <= v2hMinPrice) return 0;
           if (!v2hSpreadOk) return 0; // dagens prisspridning är för liten
           // Skala effekt linjärt från låg → hög utöver tröskeln
