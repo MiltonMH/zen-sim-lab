@@ -613,17 +613,40 @@ Deno.serve(async (req) => {
       let baselineSoc = startingSoc;
       baselineSoc = Math.max(0, baselineSoc - (dailyKwhNeeded / batteryKwh) * 100);
       for (const h of baselineConnectedHours) {
-        if (baselineSoc >= 100) break;
-        const headroomKwh = ((100 - baselineSoc) / 100) * batteryKwh;
         const hourConsKw = avgHouseKw * (h.weight / (sumWeights / 24));
-        const fuseAvailableKw = Math.max(0, fuseMaxKw - hourConsKw);
-        const kwDrawn = Math.min(chargeMaxKw, fuseAvailableKw, headroomKwh / DC_EFFICIENCY);
-        if (kwDrawn <= 0) continue;
-        const kwhStored = kwDrawn * DC_EFFICIENCY;
-        const tariff = lookupTariff(h.iso, h.hourOfDay);
-        totalCostBaseline += kwDrawn * h.price;
-        totalCostBaselineWithTariff += kwDrawn * (h.price + tariff + ENERGY_TAX_SEK) * VAT_MULTIPLIER;
-        baselineSoc = Math.min(100, baselineSoc + (kwhStored / batteryKwh) * 100);
+        let kwDrawn = 0;
+        if (baselineSoc < 100) {
+          const headroomKwh = ((100 - baselineSoc) / 100) * batteryKwh;
+          const fuseAvailableKw = Math.max(0, fuseMaxKw - hourConsKw);
+          kwDrawn = Math.min(chargeMaxKw, fuseAvailableKw, headroomKwh / DC_EFFICIENCY);
+          if (kwDrawn > 0) {
+            const kwhStored = kwDrawn * DC_EFFICIENCY;
+            const tariff = lookupTariff(h.iso, h.hourOfDay);
+            totalCostBaseline += kwDrawn * h.price;
+            totalCostBaselineWithTariff += kwDrawn * (h.price + tariff + ENERGY_TAX_SEK) * VAT_MULTIPLIER;
+            baselineSoc = Math.min(100, baselineSoc + (kwhStored / batteryKwh) * 100);
+          }
+        }
+        // Track baseline monthly peak for post-loop effekttariff calc
+        const baselineGridKw = kwDrawn + hourConsKw;
+        const curBase = baselineMonthlyPeak.get(monthKey) ?? 0;
+        if (baselineGridKw > curBase) baselineMonthlyPeak.set(monthKey, baselineGridKw);
+      }
+    }
+
+    // Post-loop: beräkna effekttariff-besparing från baseline vs optimerad månads-peak
+    if (mode === "smart_v2x" && hasPeakTariff) {
+      for (const [month, actualPeak] of monthlyPeak.entries()) {
+        const basePeak = baselineMonthlyPeak.get(month) ?? actualPeak;
+        const reduction = Math.max(0, basePeak - actualPeak);
+        if (reduction > 0) {
+          const rawSaving = reduction * peakTariffPerKw;
+          const monthlyCap =
+            fuseAmps <= 16 ? 80 :
+            fuseAmps <= 20 ? 150 :
+            fuseAmps <= 25 ? 300 : 400;
+          peakDemandSavingSek += Math.min(rawSaving, monthlyCap);
+        }
       }
     }
 
