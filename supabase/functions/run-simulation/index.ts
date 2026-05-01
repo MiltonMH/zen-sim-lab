@@ -578,7 +578,7 @@ Deno.serve(async (req) => {
           } else if (prevDecision !== "v2h" && decision === "v2h") {
             pushEvent({ occurred_at: h.iso, event_type: "v2h_started", value_kw: chargeKw, value_soc_pct: socNow, value_price_sek: h.price, value_sek_impact: Number((Math.abs(chargeKw) * h.price).toFixed(2)), reason: `Topptimme ${h.hourOfDay}:00 — V2H aktiverad` });
           } else if (prevDecision === "v2h" && decision !== "v2h") {
-            const stopReason = soc <= v2hSocFloor + 1 ? `Batterihälsa: V2H stoppad vid ${SOC_V2H_FLOOR}%` : "Topptimme avslutad";
+            const stopReason = soc <= v2hSocFloor + 1 ? `Min-batterinivå: V2H stoppad vid ${householdMinSoc}%` : "Topptimme avslutad";
             pushEvent({ occurred_at: h.iso, event_type: "v2h_stopped", value_soc_pct: socNow, reason: stopReason });
           }
           prevDecision = decision;
