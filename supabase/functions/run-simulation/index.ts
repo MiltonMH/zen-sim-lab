@@ -279,8 +279,23 @@ Deno.serve(async (req) => {
       const monthKey = day.slice(0, 7); // YYYY-MM
 
       const maxPrice = Math.max(...dayHours.map(h => h.price));
+      const minPrice = Math.min(...dayHours.map(h => h.price));
       const dailyAvgPrice = dayHours.reduce((s, h) => s + h.price, 0) / dayHours.length;
       const maxWeight = Math.max(...dayHours.map(h => h.weight));
+
+      // --- Universal engine: today's relative price thresholds ---
+      const sortedPrices = [...dayHours.map(h => h.price)].sort((a, b) => a - b);
+      const pctIdx = (p: number) => Math.min(sortedPrices.length - 1, Math.max(0, Math.floor(p * (sortedPrices.length - 1))));
+      const cheapThreshold = sortedPrices[pctIdx(CHEAP_PERCENTILE)];
+      const expensiveThreshold = sortedPrices[pctIdx(EXPENSIVE_PERCENTILE)];
+      const daySpread = maxPrice - minPrice;
+      const flatPriceDay = daySpread < FLAT_DAY_SPREAD_SEK;
+      // For each price, percentile rank 0..1 (0 = cheapest, 1 = most expensive)
+      const pricePercentile = (price: number) => {
+        let below = 0;
+        for (const p of sortedPrices) if (p < price) below++;
+        return sortedPrices.length > 1 ? below / (sortedPrices.length - 1) : 0.5;
+      };
 
       const scored = dayHours.map((h, idx) => {
         const priceScore = maxPrice > 0 ? 1 - (h.price / maxPrice) : 1;
@@ -307,6 +322,21 @@ Deno.serve(async (req) => {
       const basicPicks = new Set<number>(cheapest.slice(0, TARGET_CHARGE_HOURS).map(r => r.idx));
       const smartPicks = new Set<number>(ranked.slice(0, TARGET_CHARGE_HOURS).map(r => r.idx));
       const pickedCharge = mode === "smart_charge_basic" ? basicPicks : smartPicks;
+
+      // Overnight recharge guarantee (smart_v2x): reserve cheapest hours before next leave_time
+      // to refill from current SoC up to max_soc. Reserved hours cannot be used for V2H.
+      const reservedRechargeIsos = new Set<string>();
+      if (mode === "smart_v2x") {
+        const kwhToFill = Math.max(0, ((householdMaxSoc - soc) / 100) * batteryKwh);
+        if (kwhToFill > 0) {
+          const hoursNeeded = Math.ceil(kwhToFill / (Math.min(ARC_MAX_KW, maxDcChargeKw) * DC_EFFICIENCY));
+          const beforeLeave = [...scored]
+            .filter(h => isConnectedHour(h.hourOfDay) && h.hourOfDay < leaveTime)
+            .sort((a, b) => a.price - b.price)
+            .slice(0, hoursNeeded);
+          for (const h of beforeLeave) reservedRechargeIsos.add(h.iso);
+        }
+      }
 
       const baselineConnectedHours = [...scored]
         .filter(h => isConnectedHour(h.hourOfDay))
