@@ -383,21 +383,28 @@ Deno.serve(async (req) => {
           reason = `spot_above_${priceThreshold}sek_blocked`;
           if (pickedCharge.has(h.idx)) peakHoursAvoided++;
         }
-        // V2H — smart_v2x: scaled by price; smart_charge: legacy fixed window
+        // V2H — smart_v2x: aktivera VARJE kväll bilen är hemma och prisvillkor möts
         else if (
           v2hAllowed && mode === "smart_v2x" &&
-          smartV2hKw > 0 &&
-          soc > Math.max(35, v2hSocFloor) &&
-          h.hourOfDay >= 7 && h.hourOfDay < 22 &&
-          hourConsKw > 0.5
+          soc > SOC_V2H_FLOOR &&
+          (
+            v2hHardOverride ||
+            (
+              smartV2hKw > 0 &&
+              h.hourOfDay >= 16 && h.hourOfDay < 22 &&
+              (h.price > v2hMinPrice || h.price > dailyAvgPrice * V2H_DAILY_SPREAD_MULTIPLIER) &&
+              (fuseMaxKw - hourConsKw) > 2
+            )
+          )
         ) {
           const fuseHeadroomKw = Math.max(0, fuseMaxKw - hourConsKw);
-          const dischargeKw = Math.min(smartV2hKw, v2hMaxKw, fuseHeadroomKw);
+          const baseKw = smartV2hKw > 0 ? smartV2hKw : v2hMaxKw;
+          const dischargeKw = Math.min(baseKw, v2hMaxKw, fuseHeadroomKw);
           decision = "v2h";
           chargeKw = -dischargeKw;
-          v2hSaving = dischargeKw * totalCostPerKwh; // saved at full retail cost (incl tariff+tax+VAT)
+          v2hSaving = dischargeKw * totalCostPerKwh;
           gridDrawKw = Math.max(0, hourConsKw - dischargeKw);
-          reason = "smart_v2h_price_scaled";
+          reason = v2hHardOverride ? "v2h_hard_override_high_price" : "smart_v2h_price_scaled";
           totalV2hKwh += dischargeKw;
           totalV2hSavingSek += v2hSaving;
         } else if (
