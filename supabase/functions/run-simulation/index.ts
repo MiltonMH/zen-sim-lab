@@ -264,7 +264,8 @@ Deno.serve(async (req) => {
     const cableDaysSeen = new Set<string>();
 
     // monthly peak tracking (smart_v2x)
-    const monthlyPeak = new Map<string, number>(); // YYYY-MM → kW
+    const monthlyPeak = new Map<string, number>(); // YYYY-MM → kW (after optimization)
+    const baselineMonthlyPeak = new Map<string, number>(); // YYYY-MM → kW (dumb baseline)
 
     function pushEvent(e: Record<string, unknown>) {
       eventsBatch.push({ simulation_id, household_id: sim.household_id, ...e });
