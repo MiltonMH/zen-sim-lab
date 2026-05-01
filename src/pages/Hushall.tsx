@@ -48,6 +48,8 @@ interface Household {
   battery_kwh: number | null;
   daily_km: number | null;
   commuter_type: string | null;
+  min_soc_pct: number | null;
+  max_soc_pct: number | null;
   household_type: HouseholdType | string | null;
   data_quality: string | null;
   notes: string | null;
