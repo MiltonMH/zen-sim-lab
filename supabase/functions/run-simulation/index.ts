@@ -571,7 +571,7 @@ Deno.serve(async (req) => {
           } else if ((prevDecision === "charge" || prevDecision === "emergency_charge") && decision === "pause") {
             let stopReason = "Schema: topptimme undviken";
             if (h.price > priceThreshold) stopReason = `Spotpris för högt: ${h.price.toFixed(3)} SEK/kWh`;
-            else if (soc > upperSocCap) stopReason = mode === "smart_v2x" ? `Batterihälsa: stannar vid ${SOC_PREFERRED_MAX}%` : `Batteri fullt: ${socNow}%`;
+            else if (soc > upperSocCap) stopReason = mode === "smart_v2x" ? `Max-laddning: stannar vid ${householdMaxSoc}%` : `Batteri fullt: ${socNow}%`;
             else if (reason === "fuse_full") stopReason = "Huvudsäkring full";
             else if (reason === "peak_tariff_avoided") stopReason = "Effekttariff: undvek ny topp";
             pushEvent({ occurred_at: h.iso, event_type: "charging_stopped", value_kw: 0, value_soc_pct: socNow, value_price_sek: h.price, reason: stopReason });
