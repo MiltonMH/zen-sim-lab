@@ -17,7 +17,7 @@ const DEFAULT_SOC_EMERGENCY = 20;
 const SOC_PROTECT = 95;           // never charge above this (legacy modes)
 const SOC_HEALTH_MAX = 90;        // smart_v2x: never charge above 90 (battery health)
 const SOC_PREFERRED_MAX = 80;     // smart_v2x: stop here unless tomorrow needs more
-const SOC_V2H_FLOOR = 20;         // smart_v2x: never V2H below 20
+const SOC_V2H_FLOOR = 40;         // smart_v2x: never V2H below 40 — car must be ready next day
 const KM_PER_KWH_BASELINE = 6;    // ~6 km per kWh
 const ENERGY_TAX_SEK = 0.549;     // 2025 Swedish energy tax SEK/kWh
 const VAT_MULTIPLIER = 1.25;      // 25% moms
@@ -28,13 +28,15 @@ const DC_EFFICIENCY = 0.95;       // both directions
 // V2H aktiveringströsklar per prisområde (SEK/kWh)
 // SE1/SE2 har lägre snittpriser → lägre tröskel så V2H faktiskt används
 const V2H_THRESHOLDS: Record<string, number> = {
-  SE1: 0.25,
-  SE2: 0.50,
-  SE3: 0.80,
-  SE4: 0.65,
+  SE1: 0.20,
+  SE2: 0.30,
+  SE3: 0.50,
+  SE4: 0.45,
 };
 // V2H kräver också att aktuellt pris ligger minst X% över dagens snittpris
-const V2H_DAILY_SPREAD_MULTIPLIER = 1.3;
+const V2H_DAILY_SPREAD_MULTIPLIER = 1.2;
+// Hard override: alltid V2H när priset är extremt högt och soc tillräckligt
+const V2H_HARD_OVERRIDE_PRICE = 1.50;
 
 // Default consumption weights (pendlare style) if profile missing
 const DEFAULT_WEIGHTS = [
@@ -262,7 +264,8 @@ Deno.serve(async (req) => {
     const cableDaysSeen = new Set<string>();
 
     // monthly peak tracking (smart_v2x)
-    const monthlyPeak = new Map<string, number>(); // YYYY-MM → kW
+    const monthlyPeak = new Map<string, number>(); // YYYY-MM → kW (after optimization)
+    const baselineMonthlyPeak = new Map<string, number>(); // YYYY-MM → kW (dumb baseline)
 
     function pushEvent(e: Record<string, unknown>) {
       eventsBatch.push({ simulation_id, household_id: sim.household_id, ...e });
@@ -343,7 +346,9 @@ Deno.serve(async (req) => {
         // Tröskel beror på prisområde (SE1 har lägre snittpriser än SE3/SE4)
         const v2hMinPrice = V2H_THRESHOLDS[priceArea] ?? V2H_THRESHOLDS.SE3;
         const v2hSpreadOk = h.price > dailyAvgPrice * V2H_DAILY_SPREAD_MULTIPLIER;
+        const v2hHardOverride = h.price > V2H_HARD_OVERRIDE_PRICE && soc > SOC_V2H_FLOOR;
         const smartV2hKw = (() => {
+          if (v2hHardOverride) return v2hMaxKw;
           if (h.price <= v2hMinPrice) return 0;
           if (!v2hSpreadOk) return 0; // dagens prisspridning är för liten
           // Skala effekt linjärt från låg → hög utöver tröskeln
@@ -378,21 +383,28 @@ Deno.serve(async (req) => {
           reason = `spot_above_${priceThreshold}sek_blocked`;
           if (pickedCharge.has(h.idx)) peakHoursAvoided++;
         }
-        // V2H — smart_v2x: scaled by price; smart_charge: legacy fixed window
+        // V2H — smart_v2x: aktivera VARJE kväll bilen är hemma och prisvillkor möts
         else if (
           v2hAllowed && mode === "smart_v2x" &&
-          smartV2hKw > 0 &&
-          soc > Math.max(35, v2hSocFloor) &&
-          h.hourOfDay >= 7 && h.hourOfDay < 22 &&
-          hourConsKw > 0.5
+          soc > SOC_V2H_FLOOR &&
+          (
+            v2hHardOverride ||
+            (
+              smartV2hKw > 0 &&
+              h.hourOfDay >= 16 && h.hourOfDay < 22 &&
+              (h.price > v2hMinPrice || h.price > dailyAvgPrice * V2H_DAILY_SPREAD_MULTIPLIER) &&
+              (fuseMaxKw - hourConsKw) > 2
+            )
+          )
         ) {
           const fuseHeadroomKw = Math.max(0, fuseMaxKw - hourConsKw);
-          const dischargeKw = Math.min(smartV2hKw, v2hMaxKw, fuseHeadroomKw);
+          const baseKw = smartV2hKw > 0 ? smartV2hKw : v2hMaxKw;
+          const dischargeKw = Math.min(baseKw, v2hMaxKw, fuseHeadroomKw);
           decision = "v2h";
           chargeKw = -dischargeKw;
-          v2hSaving = dischargeKw * totalCostPerKwh; // saved at full retail cost (incl tariff+tax+VAT)
+          v2hSaving = dischargeKw * totalCostPerKwh;
           gridDrawKw = Math.max(0, hourConsKw - dischargeKw);
-          reason = "smart_v2h_price_scaled";
+          reason = v2hHardOverride ? "v2h_hard_override_high_price" : "smart_v2h_price_scaled";
           totalV2hKwh += dischargeKw;
           totalV2hSavingSek += v2hSaving;
         } else if (
@@ -429,7 +441,7 @@ Deno.serve(async (req) => {
                   ? "peak_tariff_avoided | Effekttariff: standardvärde använt (bolag ej registrerat)"
                   : "peak_tariff_avoided";
                 peaksAvoidedCount++;
-                peakDemandSavingSek += extraMonthlyCost - priceSaving;
+                // peak_demand_saving_sek beräknas post-loop från baseline-jämförelse
                 pushEvent({
                   occurred_at: h.iso,
                   event_type: "peak_demand_avoided",
@@ -601,17 +613,40 @@ Deno.serve(async (req) => {
       let baselineSoc = startingSoc;
       baselineSoc = Math.max(0, baselineSoc - (dailyKwhNeeded / batteryKwh) * 100);
       for (const h of baselineConnectedHours) {
-        if (baselineSoc >= 100) break;
-        const headroomKwh = ((100 - baselineSoc) / 100) * batteryKwh;
         const hourConsKw = avgHouseKw * (h.weight / (sumWeights / 24));
-        const fuseAvailableKw = Math.max(0, fuseMaxKw - hourConsKw);
-        const kwDrawn = Math.min(chargeMaxKw, fuseAvailableKw, headroomKwh / DC_EFFICIENCY);
-        if (kwDrawn <= 0) continue;
-        const kwhStored = kwDrawn * DC_EFFICIENCY;
-        const tariff = lookupTariff(h.iso, h.hourOfDay);
-        totalCostBaseline += kwDrawn * h.price;
-        totalCostBaselineWithTariff += kwDrawn * (h.price + tariff + ENERGY_TAX_SEK) * VAT_MULTIPLIER;
-        baselineSoc = Math.min(100, baselineSoc + (kwhStored / batteryKwh) * 100);
+        let kwDrawn = 0;
+        if (baselineSoc < 100) {
+          const headroomKwh = ((100 - baselineSoc) / 100) * batteryKwh;
+          const fuseAvailableKw = Math.max(0, fuseMaxKw - hourConsKw);
+          kwDrawn = Math.min(chargeMaxKw, fuseAvailableKw, headroomKwh / DC_EFFICIENCY);
+          if (kwDrawn > 0) {
+            const kwhStored = kwDrawn * DC_EFFICIENCY;
+            const tariff = lookupTariff(h.iso, h.hourOfDay);
+            totalCostBaseline += kwDrawn * h.price;
+            totalCostBaselineWithTariff += kwDrawn * (h.price + tariff + ENERGY_TAX_SEK) * VAT_MULTIPLIER;
+            baselineSoc = Math.min(100, baselineSoc + (kwhStored / batteryKwh) * 100);
+          }
+        }
+        // Track baseline monthly peak for post-loop effekttariff calc
+        const baselineGridKw = kwDrawn + hourConsKw;
+        const curBase = baselineMonthlyPeak.get(monthKey) ?? 0;
+        if (baselineGridKw > curBase) baselineMonthlyPeak.set(monthKey, baselineGridKw);
+      }
+    }
+
+    // Post-loop: beräkna effekttariff-besparing från baseline vs optimerad månads-peak
+    if (mode === "smart_v2x" && hasPeakTariff) {
+      for (const [month, actualPeak] of monthlyPeak.entries()) {
+        const basePeak = baselineMonthlyPeak.get(month) ?? actualPeak;
+        const reduction = Math.max(0, basePeak - actualPeak);
+        if (reduction > 0) {
+          const rawSaving = reduction * peakTariffPerKw;
+          const monthlyCap =
+            fuseAmps <= 16 ? 80 :
+            fuseAmps <= 20 ? 150 :
+            fuseAmps <= 25 ? 300 : 400;
+          peakDemandSavingSek += Math.min(rawSaving, monthlyCap);
+        }
       }
     }
 
