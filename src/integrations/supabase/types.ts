@@ -286,6 +286,8 @@ export type Database = {
           id: string
           insulation_quality: string | null
           leave_time: number | null
+          max_soc_pct: number
+          min_soc_pct: number
           name: string
           notes: string | null
           price_area: string | null
@@ -320,6 +322,8 @@ export type Database = {
           id?: string
           insulation_quality?: string | null
           leave_time?: number | null
+          max_soc_pct?: number
+          min_soc_pct?: number
           name: string
           notes?: string | null
           price_area?: string | null
@@ -354,6 +358,8 @@ export type Database = {
           id?: string
           insulation_quality?: string | null
           leave_time?: number | null
+          max_soc_pct?: number
+          min_soc_pct?: number
           name?: string
           notes?: string | null
           price_area?: string | null
