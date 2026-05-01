@@ -441,7 +441,7 @@ Deno.serve(async (req) => {
                   ? "peak_tariff_avoided | Effekttariff: standardvärde använt (bolag ej registrerat)"
                   : "peak_tariff_avoided";
                 peaksAvoidedCount++;
-                peakDemandSavingSek += extraMonthlyCost - priceSaving;
+                // peak_demand_saving_sek beräknas post-loop från baseline-jämförelse
                 pushEvent({
                   occurred_at: h.iso,
                   event_type: "peak_demand_avoided",
