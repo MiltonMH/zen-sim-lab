@@ -10,14 +10,14 @@ const corsHeaders = {
 const ARC_MAX_KW = 11;            // Arc hardware max (DC, both directions)
 const TARGET_CHARGE_HOURS = 8;    // hours/day to charge in basic mode
 const KM_PER_PCT = 5;             // km per % battery (rough)
-const PEAK_HOURS = new Set([17, 18, 19, 20]); // V2H window 17-21 (4 hours) for level 2
+const PEAK_HOURS = new Set([17, 18, 19, 20]); // V2H window 17-21 (4 hours) for level 2 legacy
 const DEFAULT_HARD_MAX_PRICE = 2.0;
 const TOO_CHEAP_PRICE = 0.20;
 const DEFAULT_SOC_EMERGENCY = 20;
 const SOC_PROTECT = 95;           // never charge above this (legacy modes)
-const SOC_HEALTH_MAX = 90;        // smart_v2x: never charge above 90 (battery health)
-const SOC_PREFERRED_MAX = 80;     // smart_v2x: stop here unless tomorrow needs more
-const SOC_V2H_FLOOR = 40;         // smart_v2x: never V2H below 40 — car must be ready next day
+const SOC_HEALTH_MAX = 90;        // hard battery-health ceiling
+const DEFAULT_MAX_SOC = 80;       // smart_v2x default ceiling (overridable per household)
+const DEFAULT_MIN_SOC = 40;       // smart_v2x default V2H floor (overridable per household)
 const KM_PER_KWH_BASELINE = 6;    // ~6 km per kWh
 const ENERGY_TAX_SEK = 0.549;     // 2025 Swedish energy tax SEK/kWh
 const VAT_MULTIPLIER = 1.25;      // 25% moms
@@ -25,18 +25,11 @@ const DEFAULT_GRID_TARIFF = 0.30; // fallback SEK/kWh when no tariff configured
 const DEFAULT_PEAK_TARIFF = 55;   // SEK/kW/month fallback
 const DC_EFFICIENCY = 0.95;       // both directions
 
-// V2H aktiveringströsklar per prisområde (SEK/kWh)
-// SE1/SE2 har lägre snittpriser → lägre tröskel så V2H faktiskt används
-const V2H_THRESHOLDS: Record<string, number> = {
-  SE1: 0.20,
-  SE2: 0.30,
-  SE3: 0.50,
-  SE4: 0.45,
-};
-// V2H kräver också att aktuellt pris ligger minst X% över dagens snittpris
-const V2H_DAILY_SPREAD_MULTIPLIER = 1.2;
-// Hard override: alltid V2H när priset är extremt högt och soc tillräckligt
-const V2H_HARD_OVERRIDE_PRICE = 1.50;
+// Universal V2H/charge engine (smart_v2x):
+// Decisions are made on TODAY'S relative price percentiles, not absolute thresholds.
+const CHEAP_PERCENTILE = 0.33;        // bottom 33% of today's prices = "cheap, charge"
+const EXPENSIVE_PERCENTILE = 0.67;    // top 33% of today's prices = "expensive, V2H"
+const FLAT_DAY_SPREAD_SEK = 0.15;     // if max-min < 0.15 SEK → no V2H today
 
 // Default consumption weights (pendlare style) if profile missing
 const DEFAULT_WEIGHTS = [
@@ -97,6 +90,9 @@ Deno.serve(async (req) => {
     const fuseAmps = Number(hh.fuse_amps) || 20;
     // 3-phase Swedish residential: kW = A * 0.23 * 3
     const fuseMaxKw = fuseAmps * 0.23 * 3;
+    // Customer-configurable SoC limits (defaults: 40 / 80)
+    const householdMinSoc = clamp(num(hh.min_soc_pct, DEFAULT_MIN_SOC), 10, 70);
+    const householdMaxSoc = clamp(num(hh.max_soc_pct, DEFAULT_MAX_SOC), 50, 100);
 
     // --- Scenario parameters ---
     const sp = (sim.scenario_params ?? {}) as Record<string, number>;
@@ -283,8 +279,23 @@ Deno.serve(async (req) => {
       const monthKey = day.slice(0, 7); // YYYY-MM
 
       const maxPrice = Math.max(...dayHours.map(h => h.price));
+      const minPrice = Math.min(...dayHours.map(h => h.price));
       const dailyAvgPrice = dayHours.reduce((s, h) => s + h.price, 0) / dayHours.length;
       const maxWeight = Math.max(...dayHours.map(h => h.weight));
+
+      // --- Universal engine: today's relative price thresholds ---
+      const sortedPrices = [...dayHours.map(h => h.price)].sort((a, b) => a - b);
+      const pctIdx = (p: number) => Math.min(sortedPrices.length - 1, Math.max(0, Math.floor(p * (sortedPrices.length - 1))));
+      const cheapThreshold = sortedPrices[pctIdx(CHEAP_PERCENTILE)];
+      const expensiveThreshold = sortedPrices[pctIdx(EXPENSIVE_PERCENTILE)];
+      const daySpread = maxPrice - minPrice;
+      const flatPriceDay = daySpread < FLAT_DAY_SPREAD_SEK;
+      // For each price, percentile rank 0..1 (0 = cheapest, 1 = most expensive)
+      const pricePercentile = (price: number) => {
+        let below = 0;
+        for (const p of sortedPrices) if (p < price) below++;
+        return sortedPrices.length > 1 ? below / (sortedPrices.length - 1) : 0.5;
+      };
 
       const scored = dayHours.map((h, idx) => {
         const priceScore = maxPrice > 0 ? 1 - (h.price / maxPrice) : 1;
@@ -312,6 +323,21 @@ Deno.serve(async (req) => {
       const smartPicks = new Set<number>(ranked.slice(0, TARGET_CHARGE_HOURS).map(r => r.idx));
       const pickedCharge = mode === "smart_charge_basic" ? basicPicks : smartPicks;
 
+      // Overnight recharge guarantee (smart_v2x): reserve cheapest hours before next leave_time
+      // to refill from current SoC up to max_soc. Reserved hours cannot be used for V2H.
+      const reservedRechargeIsos = new Set<string>();
+      if (mode === "smart_v2x") {
+        const kwhToFill = Math.max(0, ((householdMaxSoc - soc) / 100) * batteryKwh);
+        if (kwhToFill > 0) {
+          const hoursNeeded = Math.ceil(kwhToFill / (Math.min(ARC_MAX_KW, maxDcChargeKw) * DC_EFFICIENCY));
+          const beforeLeave = [...scored]
+            .filter(h => isConnectedHour(h.hourOfDay) && h.hourOfDay < leaveTime)
+            .sort((a, b) => a.price - b.price)
+            .slice(0, hoursNeeded);
+          for (const h of beforeLeave) reservedRechargeIsos.add(h.iso);
+        }
+      }
+
       const baselineConnectedHours = [...scored]
         .filter(h => isConnectedHour(h.hourOfDay))
         .sort((a, b) => a.iso.localeCompare(b.iso));
@@ -338,26 +364,20 @@ Deno.serve(async (req) => {
         const fuseAvailableKw = Math.max(0, fuseMaxKw - hourConsKw);
         const effectiveChargeKw = Math.min(chargeMaxKw, fuseAvailableKw);
 
-        // Battery-health caps (smart_v2x only)
-        const upperSocCap = mode === "smart_v2x" ? SOC_PREFERRED_MAX : SOC_PROTECT;
-        const v2hSocFloor = mode === "smart_v2x" ? SOC_V2H_FLOOR : Math.max(minSoc, 35);
+        // SoC bounds — smart_v2x uses customer-configured min/max; legacy modes use defaults.
+        const upperSocCap = mode === "smart_v2x" ? householdMaxSoc : SOC_PROTECT;
+        const v2hSocFloor = mode === "smart_v2x" ? householdMinSoc : Math.max(minSoc, 35);
 
-        // Smart V2H decision: scale power by spot price
-        // Tröskel beror på prisområde (SE1 har lägre snittpriser än SE3/SE4)
-        const v2hMinPrice = V2H_THRESHOLDS[priceArea] ?? V2H_THRESHOLDS.SE3;
-        const v2hSpreadOk = h.price > dailyAvgPrice * V2H_DAILY_SPREAD_MULTIPLIER;
-        const v2hHardOverride = h.price > V2H_HARD_OVERRIDE_PRICE && soc > SOC_V2H_FLOOR;
-        const smartV2hKw = (() => {
-          if (v2hHardOverride) return v2hMaxKw;
-          if (h.price <= v2hMinPrice) return 0;
-          if (!v2hSpreadOk) return 0; // dagens prisspridning är för liten
-          // Skala effekt linjärt från låg → hög utöver tröskeln
-          const over = h.price - v2hMinPrice;
-          if (over > 1.2) return v2hMaxKw;                    // full uteffekt
-          if (over > 0.7) return Math.min(9, v2hMaxKw);
-          if (over > 0.3) return Math.min(7, v2hMaxKw);
-          return Math.min(5, v2hMaxKw);
-        })();
+        // Universal V2H power scaling — based on today's price percentile.
+        const fuseHeadroomKw = Math.max(0, fuseMaxKw - hourConsKw);
+        const v2hPowerForPercentile = (pct: number): number => {
+          let target: number;
+          if (pct >= 0.90) target = 11;
+          else if (pct >= 0.75) target = 9;
+          else if (pct >= 0.60) target = 7;
+          else target = 5;
+          return Math.min(target, v2hMaxKw, fuseHeadroomKw);
+        };
 
         if (!connected) {
           decision = "pause";
@@ -369,52 +389,95 @@ Deno.serve(async (req) => {
           decision = "emergency_charge";
           chargeKw = effectiveChargeKw;
           reason = "soc_below_min_emergency";
-        } else if (soc > upperSocCap) {
+        } else if (mode === "smart_v2x" && soc >= upperSocCap) {
           decision = "pause";
-          reason = mode === "smart_v2x"
-            ? "battery_health_stop_at_80"
-            : "soc_above_protect";
-        } else if (h.price < TOO_CHEAP_PRICE) {
-          decision = "charge";
-          chargeKw = effectiveChargeKw;
-          reason = "too_cheap_to_ignore";
+          reason = `max_soc_reached: ${soc.toFixed(0)}% at ceiling`;
+        } else if (mode !== "smart_v2x" && soc > upperSocCap) {
+          decision = "pause";
+          reason = "soc_above_protect";
         } else if (h.price > priceThreshold) {
           decision = "pause";
           reason = `spot_above_${priceThreshold}sek_blocked`;
           if (pickedCharge.has(h.idx)) peakHoursAvoided++;
         }
-        // V2H — smart_v2x: aktivera VARJE kväll bilen är hemma och prisvillkor möts
+        // === Universal smart_v2x engine: percentile-based ===
+        else if (mode === "smart_v2x") {
+          const isCheap = h.price <= cheapThreshold;
+          const isExpensive = !flatPriceDay && h.price >= expensiveThreshold;
+          const houseConsumingNow = hourConsKw > 0.2;
+
+          if (
+            v2hAllowed && isExpensive &&
+            soc > v2hSocFloor &&
+            houseConsumingNow &&
+            fuseHeadroomKw > 1 &&
+            !reservedRechargeIsos.has(h.iso)
+          ) {
+            const pct = pricePercentile(h.price);
+            const dischargeKw = v2hPowerForPercentile(pct);
+            if (dischargeKw > 0) {
+              decision = "v2h";
+              chargeKw = -dischargeKw;
+              v2hSaving = dischargeKw * totalCostPerKwh;
+              gridDrawKw = Math.max(0, hourConsKw - dischargeKw);
+              reason = `v2h_expensive_hour: ${h.price.toFixed(3)} SEK above ${expensiveThreshold.toFixed(3)}`;
+              totalV2hKwh += dischargeKw;
+              totalV2hSavingSek += v2hSaving;
+            } else {
+              decision = "pause";
+              reason = "v2h_no_headroom";
+            }
+          } else if (isCheap && soc < upperSocCap) {
+            // Effekttariff guardrail
+            const projectedGridKw = hourConsKw + effectiveChargeKw;
+            const currentMonthlyPeak = monthlyPeak.get(monthKey) ?? 0;
+            if (
+              hasPeakTariff &&
+              projectedGridKw > currentMonthlyPeak &&
+              (projectedGridKw - currentMonthlyPeak) * peakTariffPerKw >
+                Math.max(0, (priceThreshold - h.price) * effectiveChargeKw)
+            ) {
+              decision = "pause";
+              reason = peakTariffMissing
+                ? "peak_tariff_avoided | Effekttariff: standardvärde använt (bolag ej registrerat)"
+                : "peak_tariff_avoided";
+              peaksAvoidedCount++;
+              pushEvent({
+                occurred_at: h.iso,
+                event_type: "peak_demand_avoided",
+                value_kw: projectedGridKw - currentMonthlyPeak,
+                reason: `Effekttariff: undvek ny topp +${(projectedGridKw - currentMonthlyPeak).toFixed(1)} kW`,
+              });
+            } else {
+              decision = "charge";
+              chargeKw = effectiveChargeKw;
+              reason = `charge_cheap_hour: ${h.price.toFixed(3)} SEK below ${cheapThreshold.toFixed(3)}`;
+              if (projectedGridKw > currentMonthlyPeak) monthlyPeak.set(monthKey, projectedGridKw);
+            }
+          } else if (flatPriceDay && pickedCharge.has(h.idx)) {
+            decision = "charge";
+            chargeKw = effectiveChargeKw;
+            reason = "flat_price_day_no_v2h";
+          } else {
+            decision = "pause";
+            reason = flatPriceDay
+              ? "flat_price_day_no_v2h"
+              : `pause_middle_price: ${h.price.toFixed(3)} SEK between thresholds`;
+          }
+        }
+        // === Legacy smart_charge / smart_charge_basic ===
+        else if (h.price < TOO_CHEAP_PRICE) {
+          decision = "charge";
+          chargeKw = effectiveChargeKw;
+          reason = "too_cheap_to_ignore";
+        }
         else if (
-          v2hAllowed && mode === "smart_v2x" &&
-          soc > SOC_V2H_FLOOR &&
-          (
-            v2hHardOverride ||
-            (
-              smartV2hKw > 0 &&
-              h.hourOfDay >= 16 && h.hourOfDay < 22 &&
-              (h.price > v2hMinPrice || h.price > dailyAvgPrice * V2H_DAILY_SPREAD_MULTIPLIER) &&
-              (fuseMaxKw - hourConsKw) > 2
-            )
-          )
-        ) {
-          const fuseHeadroomKw = Math.max(0, fuseMaxKw - hourConsKw);
-          const baseKw = smartV2hKw > 0 ? smartV2hKw : v2hMaxKw;
-          const dischargeKw = Math.min(baseKw, v2hMaxKw, fuseHeadroomKw);
-          decision = "v2h";
-          chargeKw = -dischargeKw;
-          v2hSaving = dischargeKw * totalCostPerKwh;
-          gridDrawKw = Math.max(0, hourConsKw - dischargeKw);
-          reason = v2hHardOverride ? "v2h_hard_override_high_price" : "smart_v2h_price_scaled";
-          totalV2hKwh += dischargeKw;
-          totalV2hSavingSek += v2hSaving;
-        } else if (
           v2hAllowed && mode === "smart_charge" &&
           PEAK_HOURS.has(h.hourOfDay) &&
           h.price > 1.0 &&
-          h.price > dailyAvgPrice * V2H_DAILY_SPREAD_MULTIPLIER &&
+          h.price > dailyAvgPrice * 1.2 &&
           soc > 40
         ) {
-          const fuseHeadroomKw = Math.max(0, fuseMaxKw - hourConsKw);
           const dischargeKw = Math.min(7, v2hMaxKw, fuseHeadroomKw);
           decision = "v2h";
           chargeKw = -dischargeKw;
@@ -424,47 +487,10 @@ Deno.serve(async (req) => {
           totalV2hKwh += dischargeKw;
           totalV2hSavingSek += v2hSaving;
         }
-        // Combined-score / cheapest selection
         else if (pickedCharge.has(h.idx)) {
-          // Effekttariff guardrail (smart_v2x only)
-          if (mode === "smart_v2x" && hasPeakTariff) {
-            const projectedGridKw = hourConsKw + effectiveChargeKw;
-            const currentMonthlyPeak = monthlyPeak.get(monthKey) ?? 0;
-            if (projectedGridKw > currentMonthlyPeak) {
-              const extraPeakKw = projectedGridKw - currentMonthlyPeak;
-              const extraMonthlyCost = extraPeakKw * peakTariffPerKw;
-              // What we save by charging this hour vs not: roughly (priceThreshold - h.price) * kWh
-              const priceSaving = Math.max(0, (priceThreshold - h.price) * effectiveChargeKw);
-              if (extraMonthlyCost > priceSaving) {
-                decision = "pause";
-                reason = peakTariffMissing
-                  ? "peak_tariff_avoided | Effekttariff: standardvärde använt (bolag ej registrerat)"
-                  : "peak_tariff_avoided";
-                peaksAvoidedCount++;
-                // peak_demand_saving_sek beräknas post-loop från baseline-jämförelse
-                pushEvent({
-                  occurred_at: h.iso,
-                  event_type: "peak_demand_avoided",
-                  value_kw: extraPeakKw,
-                  value_sek_impact: round2(extraMonthlyCost - priceSaving),
-                  reason: `Effekttariff: undvek ny topp +${extraPeakKw.toFixed(1)} kW`,
-                });
-              } else {
-                decision = "charge";
-                chargeKw = effectiveChargeKw;
-                reason = "best_combined_score";
-                monthlyPeak.set(monthKey, projectedGridKw);
-              }
-            } else {
-              decision = "charge";
-              chargeKw = effectiveChargeKw;
-              reason = "best_combined_score";
-            }
-          } else {
-            decision = "charge";
-            chargeKw = effectiveChargeKw;
-            reason = mode === "smart_charge_basic" ? "cheapest_8_hours" : "best_combined_score";
-          }
+          decision = "charge";
+          chargeKw = effectiveChargeKw;
+          reason = mode === "smart_charge_basic" ? "cheapest_8_hours" : "best_combined_score";
         } else {
           decision = "pause";
           reason = h.weight >= maxWeight * 0.8 ? "house_peak_consumption" : "lower_score";
@@ -545,14 +571,14 @@ Deno.serve(async (req) => {
           } else if ((prevDecision === "charge" || prevDecision === "emergency_charge") && decision === "pause") {
             let stopReason = "Schema: topptimme undviken";
             if (h.price > priceThreshold) stopReason = `Spotpris för högt: ${h.price.toFixed(3)} SEK/kWh`;
-            else if (soc > upperSocCap) stopReason = mode === "smart_v2x" ? `Batterihälsa: stannar vid ${SOC_PREFERRED_MAX}%` : `Batteri fullt: ${socNow}%`;
+            else if (soc > upperSocCap) stopReason = mode === "smart_v2x" ? `Max-laddning: stannar vid ${householdMaxSoc}%` : `Batteri fullt: ${socNow}%`;
             else if (reason === "fuse_full") stopReason = "Huvudsäkring full";
             else if (reason === "peak_tariff_avoided") stopReason = "Effekttariff: undvek ny topp";
             pushEvent({ occurred_at: h.iso, event_type: "charging_stopped", value_kw: 0, value_soc_pct: socNow, value_price_sek: h.price, reason: stopReason });
           } else if (prevDecision !== "v2h" && decision === "v2h") {
             pushEvent({ occurred_at: h.iso, event_type: "v2h_started", value_kw: chargeKw, value_soc_pct: socNow, value_price_sek: h.price, value_sek_impact: Number((Math.abs(chargeKw) * h.price).toFixed(2)), reason: `Topptimme ${h.hourOfDay}:00 — V2H aktiverad` });
           } else if (prevDecision === "v2h" && decision !== "v2h") {
-            const stopReason = soc <= v2hSocFloor + 1 ? `Batterihälsa: V2H stoppad vid ${SOC_V2H_FLOOR}%` : "Topptimme avslutad";
+            const stopReason = soc <= v2hSocFloor + 1 ? `Min-batterinivå: V2H stoppad vid ${householdMinSoc}%` : "Topptimme avslutad";
             pushEvent({ occurred_at: h.iso, event_type: "v2h_stopped", value_soc_pct: socNow, reason: stopReason });
           }
           prevDecision = decision;

@@ -11,6 +11,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Plus, Pencil, Trash2, Home, Car, Zap, FolderOpen, ChevronLeft, ChevronRight } from "lucide-react";
+import { Slider } from "@/components/ui/slider";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { householdTypeMeta, type HouseholdType } from "@/lib/householdTypes";
@@ -47,6 +48,8 @@ interface Household {
   battery_kwh: number | null;
   daily_km: number | null;
   commuter_type: string | null;
+  min_soc_pct: number | null;
+  max_soc_pct: number | null;
   household_type: HouseholdType | string | null;
   data_quality: string | null;
   notes: string | null;
@@ -76,6 +79,8 @@ const empty: Partial<Household> = {
   battery_kwh: null,
   daily_km: 40,
   commuter_type: "pendlare",
+  min_soc_pct: 40,
+  max_soc_pct: 80,
   household_type: "seed",
   data_quality: "verified",
   notes: "",
@@ -511,6 +516,45 @@ export default function Hushall() {
                   </SelectContent>
                 </Select>
               </div>
+
+              {/* SoC limits — universal engine boundaries */}
+              {(() => {
+                const minSoc = Number(editing.min_soc_pct ?? 40);
+                const maxSoc = Number(editing.max_soc_pct ?? 80);
+                const battery = Number(editing.battery_kwh ?? 0);
+                const usableKwh = Math.max(0, (battery * (maxSoc - minSoc)) / 100);
+                const bufferKm = Math.round(battery * (minSoc / 100) * 6);
+                return (
+                  <div className="col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 border-t pt-4 mt-2">
+                    <div>
+                      <Label className="mb-2 block">Lägsta batterinivå (ZenOS laddar aldrig ur mer)</Label>
+                      <Slider
+                        min={20} max={60} step={5}
+                        value={[minSoc]}
+                        onValueChange={([v]) => set("min_soc_pct", v)}
+                      />
+                      <p className="text-xs text-muted-foreground mt-2">
+                        {minSoc}% — bilen har alltid {((battery * minSoc) / 100).toFixed(1)} kWh kvar
+                      </p>
+                    </div>
+                    <div>
+                      <Label className="mb-2 block">Högsta laddningsnivå</Label>
+                      <Slider
+                        min={60} max={100} step={5}
+                        value={[maxSoc]}
+                        onValueChange={([v]) => set("max_soc_pct", v)}
+                      />
+                      <p className="text-xs text-muted-foreground mt-2">
+                        {maxSoc}% — skyddar batteriet
+                      </p>
+                    </div>
+                    <div className="col-span-1 md:col-span-2 rounded-xl bg-muted/40 px-4 py-3 text-xs text-muted-foreground space-y-1">
+                      <div>ZenOS kan använda <span className="font-semibold text-foreground">{usableKwh.toFixed(1)} kWh</span> för V2H</div>
+                      <div>Räcker för <span className="font-semibold text-foreground">{bufferKm} km</span> körning som buffert</div>
+                    </div>
+                  </div>
+                );
+              })()}
 
               <div className="col-span-2 border-t pt-4 mt-2">
                 <h4 className="font-medium mb-3">Klassificering</h4>
