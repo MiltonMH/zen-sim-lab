@@ -10,14 +10,14 @@ const corsHeaders = {
 const ARC_MAX_KW = 11;            // Arc hardware max (DC, both directions)
 const TARGET_CHARGE_HOURS = 8;    // hours/day to charge in basic mode
 const KM_PER_PCT = 5;             // km per % battery (rough)
-const PEAK_HOURS = new Set([17, 18, 19, 20]); // V2H window 17-21 (4 hours) for level 2
+const PEAK_HOURS = new Set([17, 18, 19, 20]); // V2H window 17-21 (4 hours) for level 2 legacy
 const DEFAULT_HARD_MAX_PRICE = 2.0;
 const TOO_CHEAP_PRICE = 0.20;
 const DEFAULT_SOC_EMERGENCY = 20;
 const SOC_PROTECT = 95;           // never charge above this (legacy modes)
-const SOC_HEALTH_MAX = 90;        // smart_v2x: never charge above 90 (battery health)
-const SOC_PREFERRED_MAX = 80;     // smart_v2x: stop here unless tomorrow needs more
-const SOC_V2H_FLOOR = 40;         // smart_v2x: never V2H below 40 — car must be ready next day
+const SOC_HEALTH_MAX = 90;        // hard battery-health ceiling
+const DEFAULT_MAX_SOC = 80;       // smart_v2x default ceiling (overridable per household)
+const DEFAULT_MIN_SOC = 40;       // smart_v2x default V2H floor (overridable per household)
 const KM_PER_KWH_BASELINE = 6;    // ~6 km per kWh
 const ENERGY_TAX_SEK = 0.549;     // 2025 Swedish energy tax SEK/kWh
 const VAT_MULTIPLIER = 1.25;      // 25% moms
@@ -25,18 +25,11 @@ const DEFAULT_GRID_TARIFF = 0.30; // fallback SEK/kWh when no tariff configured
 const DEFAULT_PEAK_TARIFF = 55;   // SEK/kW/month fallback
 const DC_EFFICIENCY = 0.95;       // both directions
 
-// V2H aktiveringströsklar per prisområde (SEK/kWh)
-// SE1/SE2 har lägre snittpriser → lägre tröskel så V2H faktiskt används
-const V2H_THRESHOLDS: Record<string, number> = {
-  SE1: 0.20,
-  SE2: 0.30,
-  SE3: 0.50,
-  SE4: 0.45,
-};
-// V2H kräver också att aktuellt pris ligger minst X% över dagens snittpris
-const V2H_DAILY_SPREAD_MULTIPLIER = 1.2;
-// Hard override: alltid V2H när priset är extremt högt och soc tillräckligt
-const V2H_HARD_OVERRIDE_PRICE = 1.50;
+// Universal V2H/charge engine (smart_v2x):
+// Decisions are made on TODAY'S relative price percentiles, not absolute thresholds.
+const CHEAP_PERCENTILE = 0.33;        // bottom 33% of today's prices = "cheap, charge"
+const EXPENSIVE_PERCENTILE = 0.67;    // top 33% of today's prices = "expensive, V2H"
+const FLAT_DAY_SPREAD_SEK = 0.15;     // if max-min < 0.15 SEK → no V2H today
 
 // Default consumption weights (pendlare style) if profile missing
 const DEFAULT_WEIGHTS = [
