@@ -141,6 +141,14 @@ Deno.serve(async (req) => {
       for (const r of cps as { hour: number; weight: number }[]) {
         if (r.hour >= 0 && r.hour < 24) weights[r.hour] = Number(r.weight);
       }
+    } else {
+      console.warn(
+        "[run-simulation] No consumption profile for household",
+        (hh as any)?.name ?? sim.household_id,
+        "— using default weights"
+      );
+      (warnings as any).consumption_warning =
+        "Ingen förbrukningsprofil — standardvärden används";
     }
     const sumWeights = weights.reduce((s, w) => s + w, 0);
 
