@@ -209,7 +209,7 @@ Deno.serve(async (req) => {
     let peakTariffPerKw = DEFAULT_PEAK_TARIFF;
     let hasPeakTariff = true;
     let peakTariffMissing = false;
-    const warnings: Record<string, string> = {};
+    // warnings declared earlier (above consumption profile load)
     if (hh.grid_company) {
       const { data: gcs } = await supabase
         .from("grid_company_settings")
