@@ -412,6 +412,10 @@ Deno.serve(async (req) => {
         if (!connected) {
           decision = "pause";
           reason = "cable_disconnected";
+          // Belt-and-suspenders: guarantee no charge or V2H happens while disconnected
+          chargeKw = 0;
+          v2hSaving = 0;
+          gridDrawKw = hourConsKw;
         } else if (fuseAvailableKw <= 0.1) {
           decision = "pause";
           reason = "fuse_full";
