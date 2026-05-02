@@ -326,6 +326,8 @@ Deno.serve(async (req) => {
       // Overnight recharge guarantee (smart_v2x): reserve cheapest hours before next leave_time
       // to refill from current SoC up to max_soc. Reserved hours cannot be used for V2H.
       const reservedRechargeIsos = new Set<string>();
+      const preChargeIsos = new Set<string>();
+      let preChargeTarget = householdMaxSoc;
       if (mode === "smart_v2x") {
         const kwhToFill = Math.max(0, ((householdMaxSoc - soc) / 100) * batteryKwh);
         if (kwhToFill > 0) {
@@ -335,6 +337,25 @@ Deno.serve(async (req) => {
             .sort((a, b) => a.price - b.price)
             .slice(0, hoursNeeded);
           for (const h of beforeLeave) reservedRechargeIsos.add(h.iso);
+        }
+
+        // --- Pre-charge strategy: if tonight's evening prices are expensive,
+        // top up extra during cheapest 01:00-06:00 hours so we have more V2H ammo.
+        const eveningHours = dayHours.filter(h => h.hourOfDay >= 16 && h.hourOfDay <= 22);
+        if (eveningHours.length > 0) {
+          const eveningAvg = eveningHours.reduce((s, h) => s + h.price, 0) / eveningHours.length;
+          const expensiveEvening = eveningAvg > dailyAvgPrice * 1.25;
+          preChargeTarget = expensiveEvening
+            ? Math.min(SOC_HEALTH_MAX, householdMaxSoc + 10)
+            : householdMaxSoc;
+          if (preChargeTarget > soc) {
+            const kwhToPrecharge = Math.max(0, ((preChargeTarget - soc) / 100) * batteryKwh);
+            const morningHours = [...scored]
+              .filter(h => h.hourOfDay >= 1 && h.hourOfDay <= 6 && isConnectedHour(h.hourOfDay))
+              .sort((a, b) => a.price - b.price);
+            const hoursNeeded = Math.ceil(kwhToPrecharge / (Math.min(ARC_MAX_KW, maxDcChargeKw) * DC_EFFICIENCY));
+            for (const h of morningHours.slice(0, hoursNeeded)) preChargeIsos.add(h.iso);
+          }
         }
       }
 
