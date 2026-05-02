@@ -458,20 +458,28 @@ Deno.serve(async (req) => {
             !reservedRechargeIsos.has(h.iso)
           ) {
             const pct = pricePercentile(h.price);
-            const dischargeKw = v2hPowerForPercentile(pct);
-            if (dischargeKw > 0) {
+            const rawDischargeKw = v2hPowerForPercentile(pct);
+            // V2H can only supply what the house actually draws —
+            // Arc cannot export to grid, so excess power is wasted.
+            const dischargeKw = Math.min(
+              rawDischargeKw,
+              v2hMaxKw,
+              fuseHeadroomKw,
+              hourConsKw,
+            );
+            if (dischargeKw > 0.1) {
               decision = "v2h";
               chargeKw = -dischargeKw;
               v2hSaving = dischargeKw * totalCostPerKwh;
               gridDrawKw = Math.max(0, hourConsKw - dischargeKw);
               reason = extremePriceOverride && !v2hAllowedHour
-                ? `v2h_extreme_price_override: ${h.price.toFixed(3)} SEK at hour ${h.hourOfDay}`
-                : `v2h_expensive_hour: ${h.price.toFixed(3)} SEK above ${expensiveThreshold.toFixed(3)}`;
+                ? `v2h_extreme_price_override: ${h.price.toFixed(3)} SEK at hour ${h.hourOfDay} (capped to ${dischargeKw.toFixed(1)} kW house load)`
+                : `v2h_expensive_hour: ${h.price.toFixed(3)} SEK above ${expensiveThreshold.toFixed(3)} (capped to ${dischargeKw.toFixed(1)} kW house load)`;
               totalV2hKwh += dischargeKw;
               totalV2hSavingSek += v2hSaving;
             } else {
               decision = "pause";
-              reason = "v2h_no_headroom";
+              reason = "v2h_no_house_load";
             }
           } else if (v2hAllowed && isExpensive && !v2hTimeOk && soc > v2hSocFloor) {
             decision = "pause";
