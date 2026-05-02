@@ -134,6 +134,7 @@ Deno.serve(async (req) => {
     const v2hMaxKw = Math.min(ARC_MAX_KW, maxV2xDischargeKw);
 
     // 2c. Consumption profile
+    const warnings: Record<string, string> = {};
     const { data: cps } = await supabase
       .from("consumption_profiles").select("hour, weight").eq("household_id", sim.household_id);
     const weights = [...DEFAULT_WEIGHTS];
