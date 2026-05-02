@@ -134,6 +134,7 @@ Deno.serve(async (req) => {
     const v2hMaxKw = Math.min(ARC_MAX_KW, maxV2xDischargeKw);
 
     // 2c. Consumption profile
+    const warnings: Record<string, string> = {};
     const { data: cps } = await supabase
       .from("consumption_profiles").select("hour, weight").eq("household_id", sim.household_id);
     const weights = [...DEFAULT_WEIGHTS];
@@ -141,6 +142,14 @@ Deno.serve(async (req) => {
       for (const r of cps as { hour: number; weight: number }[]) {
         if (r.hour >= 0 && r.hour < 24) weights[r.hour] = Number(r.weight);
       }
+    } else {
+      console.warn(
+        "[run-simulation] No consumption profile for household",
+        (hh as any)?.name ?? sim.household_id,
+        "— using default weights"
+      );
+      warnings.consumption_warning =
+        "Ingen förbrukningsprofil — standardvärden används";
     }
     const sumWeights = weights.reduce((s, w) => s + w, 0);
 
@@ -201,7 +210,7 @@ Deno.serve(async (req) => {
     let peakTariffPerKw = DEFAULT_PEAK_TARIFF;
     let hasPeakTariff = true;
     let peakTariffMissing = false;
-    const warnings: Record<string, string> = {};
+    // warnings declared earlier (above consumption profile load)
     if (hh.grid_company) {
       const { data: gcs } = await supabase
         .from("grid_company_settings")
@@ -277,6 +286,28 @@ Deno.serve(async (req) => {
       if (dayHours.length === 0) continue;
       daysProcessed++;
       const monthKey = day.slice(0, 7); // YYYY-MM
+
+      // Diagnostic: log connected vs disconnected hours for first 3 days
+      if (daysProcessed <= 3) {
+        const leaveTimeRaw = num(hh.leave_time, 7);
+        const returnTimeRaw = num(hh.return_time, 17);
+        const _isConn = (hod: number) => {
+          if (returnTimeRaw === leaveTimeRaw) return true;
+          if (returnTimeRaw < leaveTimeRaw) return hod >= returnTimeRaw && hod < leaveTimeRaw;
+          return hod >= returnTimeRaw || hod < leaveTimeRaw;
+        };
+        let connectedHours = 0, disconnectedHours = 0;
+        for (const h of dayHours) {
+          if (_isConn(h.hourOfDay)) connectedHours++; else disconnectedHours++;
+        }
+        console.log(
+          "[run-simulation] Day", day,
+          "connected:", connectedHours,
+          "disconnected:", disconnectedHours,
+          "leaveTime:", leaveTimeRaw,
+          "returnTime:", returnTimeRaw,
+        );
+      }
 
       const maxPrice = Math.max(...dayHours.map(h => h.price));
       const minPrice = Math.min(...dayHours.map(h => h.price));
@@ -403,6 +434,10 @@ Deno.serve(async (req) => {
         if (!connected) {
           decision = "pause";
           reason = "cable_disconnected";
+          // Belt-and-suspenders: guarantee no charge or V2H happens while disconnected
+          chargeKw = 0;
+          v2hSaving = 0;
+          gridDrawKw = hourConsKw;
         } else if (fuseAvailableKw <= 0.1) {
           decision = "pause";
           reason = "fuse_full";
@@ -449,20 +484,28 @@ Deno.serve(async (req) => {
             !reservedRechargeIsos.has(h.iso)
           ) {
             const pct = pricePercentile(h.price);
-            const dischargeKw = v2hPowerForPercentile(pct);
-            if (dischargeKw > 0) {
+            const rawDischargeKw = v2hPowerForPercentile(pct);
+            // V2H can only supply what the house actually draws —
+            // Arc cannot export to grid, so excess power is wasted.
+            const dischargeKw = Math.min(
+              rawDischargeKw,
+              v2hMaxKw,
+              fuseHeadroomKw,
+              hourConsKw,
+            );
+            if (dischargeKw > 0.1) {
               decision = "v2h";
               chargeKw = -dischargeKw;
               v2hSaving = dischargeKw * totalCostPerKwh;
               gridDrawKw = Math.max(0, hourConsKw - dischargeKw);
               reason = extremePriceOverride && !v2hAllowedHour
-                ? `v2h_extreme_price_override: ${h.price.toFixed(3)} SEK at hour ${h.hourOfDay}`
-                : `v2h_expensive_hour: ${h.price.toFixed(3)} SEK above ${expensiveThreshold.toFixed(3)}`;
+                ? `v2h_extreme_price_override: ${h.price.toFixed(3)} SEK at hour ${h.hourOfDay} (capped to ${dischargeKw.toFixed(1)} kW house load)`
+                : `v2h_expensive_hour: ${h.price.toFixed(3)} SEK above ${expensiveThreshold.toFixed(3)} (capped to ${dischargeKw.toFixed(1)} kW house load)`;
               totalV2hKwh += dischargeKw;
               totalV2hSavingSek += v2hSaving;
             } else {
               decision = "pause";
-              reason = "v2h_no_headroom";
+              reason = "v2h_no_house_load";
             }
           } else if (v2hAllowed && isExpensive && !v2hTimeOk && soc > v2hSocFloor) {
             decision = "pause";
