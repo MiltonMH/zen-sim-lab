@@ -287,6 +287,28 @@ Deno.serve(async (req) => {
       daysProcessed++;
       const monthKey = day.slice(0, 7); // YYYY-MM
 
+      // Diagnostic: log connected vs disconnected hours for first 3 days
+      if (daysProcessed <= 3) {
+        const leaveTimeRaw = num(hh.leave_time, 7);
+        const returnTimeRaw = num(hh.return_time, 17);
+        const _isConn = (hod: number) => {
+          if (returnTimeRaw === leaveTimeRaw) return true;
+          if (returnTimeRaw < leaveTimeRaw) return hod >= returnTimeRaw && hod < leaveTimeRaw;
+          return hod >= returnTimeRaw || hod < leaveTimeRaw;
+        };
+        let connectedHours = 0, disconnectedHours = 0;
+        for (const h of dayHours) {
+          if (_isConn(h.hourOfDay)) connectedHours++; else disconnectedHours++;
+        }
+        console.log(
+          "[run-simulation] Day", day,
+          "connected:", connectedHours,
+          "disconnected:", disconnectedHours,
+          "leaveTime:", leaveTimeRaw,
+          "returnTime:", returnTimeRaw,
+        );
+      }
+
       const maxPrice = Math.max(...dayHours.map(h => h.price));
       const minPrice = Math.min(...dayHours.map(h => h.price));
       const dailyAvgPrice = dayHours.reduce((s, h) => s + h.price, 0) / dayHours.length;
