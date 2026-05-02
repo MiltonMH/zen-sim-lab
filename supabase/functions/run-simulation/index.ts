@@ -326,6 +326,8 @@ Deno.serve(async (req) => {
       // Overnight recharge guarantee (smart_v2x): reserve cheapest hours before next leave_time
       // to refill from current SoC up to max_soc. Reserved hours cannot be used for V2H.
       const reservedRechargeIsos = new Set<string>();
+      const preChargeIsos = new Set<string>();
+      let preChargeTarget = householdMaxSoc;
       if (mode === "smart_v2x") {
         const kwhToFill = Math.max(0, ((householdMaxSoc - soc) / 100) * batteryKwh);
         if (kwhToFill > 0) {
@@ -335,6 +337,25 @@ Deno.serve(async (req) => {
             .sort((a, b) => a.price - b.price)
             .slice(0, hoursNeeded);
           for (const h of beforeLeave) reservedRechargeIsos.add(h.iso);
+        }
+
+        // --- Pre-charge strategy: if tonight's evening prices are expensive,
+        // top up extra during cheapest 01:00-06:00 hours so we have more V2H ammo.
+        const eveningHours = dayHours.filter(h => h.hourOfDay >= 16 && h.hourOfDay <= 22);
+        if (eveningHours.length > 0) {
+          const eveningAvg = eveningHours.reduce((s, h) => s + h.price, 0) / eveningHours.length;
+          const expensiveEvening = eveningAvg > dailyAvgPrice * 1.25;
+          preChargeTarget = expensiveEvening
+            ? Math.min(SOC_HEALTH_MAX, householdMaxSoc + 10)
+            : householdMaxSoc;
+          if (preChargeTarget > soc) {
+            const kwhToPrecharge = Math.max(0, ((preChargeTarget - soc) / 100) * batteryKwh);
+            const morningHours = [...scored]
+              .filter(h => h.hourOfDay >= 1 && h.hourOfDay <= 6 && isConnectedHour(h.hourOfDay))
+              .sort((a, b) => a.price - b.price);
+            const hoursNeeded = Math.ceil(kwhToPrecharge / (Math.min(ARC_MAX_KW, maxDcChargeKw) * DC_EFFICIENCY));
+            for (const h of morningHours.slice(0, hoursNeeded)) preChargeIsos.add(h.iso);
+          }
         }
       }
 
@@ -406,8 +427,22 @@ Deno.serve(async (req) => {
           const isExpensive = !flatPriceDay && h.price >= expensiveThreshold;
           const houseConsumingNow = hourConsKw > 0.2;
 
-          if (
-            v2hAllowed && isExpensive &&
+          // Nighttime V2H restriction (23:00-06:00) — bilen sover, huset drar lite,
+          // batteriet behövs för morgonkörning. Tillåt bara vid extrema priser.
+          const v2hAllowedHour = h.hourOfDay >= 6 && h.hourOfDay < 23;
+          const extremePriceOverride = h.price > 2.0 && soc > 60 && h.hourOfDay >= 5;
+          const v2hTimeOk = v2hAllowedHour || extremePriceOverride;
+
+          // Pre-charge: forced charge during reserved morning hours to reach preChargeTarget
+          if (preChargeIsos.has(h.iso) && soc < preChargeTarget) {
+            const projectedGridKw = hourConsKw + effectiveChargeKw;
+            const currentMonthlyPeak = monthlyPeak.get(monthKey) ?? 0;
+            decision = "charge";
+            chargeKw = effectiveChargeKw;
+            reason = `precharge_for_v2h: target ${preChargeTarget.toFixed(0)}%`;
+            if (projectedGridKw > currentMonthlyPeak) monthlyPeak.set(monthKey, projectedGridKw);
+          } else if (
+            v2hAllowed && isExpensive && v2hTimeOk &&
             soc > v2hSocFloor &&
             houseConsumingNow &&
             fuseHeadroomKw > 1 &&
@@ -420,13 +455,18 @@ Deno.serve(async (req) => {
               chargeKw = -dischargeKw;
               v2hSaving = dischargeKw * totalCostPerKwh;
               gridDrawKw = Math.max(0, hourConsKw - dischargeKw);
-              reason = `v2h_expensive_hour: ${h.price.toFixed(3)} SEK above ${expensiveThreshold.toFixed(3)}`;
+              reason = extremePriceOverride && !v2hAllowedHour
+                ? `v2h_extreme_price_override: ${h.price.toFixed(3)} SEK at hour ${h.hourOfDay}`
+                : `v2h_expensive_hour: ${h.price.toFixed(3)} SEK above ${expensiveThreshold.toFixed(3)}`;
               totalV2hKwh += dischargeKw;
               totalV2hSavingSek += v2hSaving;
             } else {
               decision = "pause";
               reason = "v2h_no_headroom";
             }
+          } else if (v2hAllowed && isExpensive && !v2hTimeOk && soc > v2hSocFloor) {
+            decision = "pause";
+            reason = `v2h_nighttime_restricted: hour ${h.hourOfDay} (23-06 sleep window)`;
           } else if (isCheap && soc < upperSocCap) {
             // Effekttariff guardrail
             const projectedGridKw = hourConsKw + effectiveChargeKw;
