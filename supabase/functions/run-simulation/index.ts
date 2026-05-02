@@ -148,7 +148,7 @@ Deno.serve(async (req) => {
         (hh as any)?.name ?? sim.household_id,
         "— using default weights"
       );
-      (warnings as any).consumption_warning =
+      warnings.consumption_warning =
         "Ingen förbrukningsprofil — standardvärden används";
     }
     const sumWeights = weights.reduce((s, w) => s + w, 0);
