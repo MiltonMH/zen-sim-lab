@@ -546,12 +546,6 @@ Deno.serve(async (req) => {
           chargeKw = effectiveChargeKw;
           reason = "too_cheap_to_ignore";
         }
-        // === Legacy smart_charge / smart_charge_basic ===
-        else if (h.price < TOO_CHEAP_PRICE) {
-          decision = "charge";
-          chargeKw = effectiveChargeKw;
-          reason = "too_cheap_to_ignore";
-        }
         else if (
           v2hAllowed && mode === "smart_charge" &&
           PEAK_HOURS.has(h.hourOfDay) &&
