@@ -26,10 +26,9 @@ const DEFAULT_PEAK_TARIFF = 55;   // SEK/kW/month fallback
 const DC_EFFICIENCY = 0.95;       // both directions
 
 // Universal V2H/charge engine (smart_v2x):
-// Decisions are made on TODAY'S relative price percentiles, not absolute thresholds.
-const CHEAP_PERCENTILE = 0.33;        // bottom 33% of today's prices = "cheap, charge"
-const EXPENSIVE_PERCENTILE = 0.67;    // top 33% of today's prices = "expensive, V2H"
-const FLAT_DAY_SPREAD_SEK = 0.15;     // if max-min < 0.15 SEK → no V2H today
+// Lookahead daily planning — analyze full 24h price curve, lock cheapest sleeping
+// hours for charging, plan V2H during expensive hours with margin above charge cost.
+const V2H_MARGIN_SEK = 0.10;          // SEK/kWh required spread above avg charge cost
 
 // Default consumption weights (pendlare style) if profile missing
 const DEFAULT_WEIGHTS = [
