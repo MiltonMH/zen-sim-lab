@@ -654,6 +654,39 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      ml_challenges: { Args: never; Returns: Json }
+      ml_decision_category: {
+        Args: { _decision: string; _reason: string }
+        Returns: string
+      }
+      ml_hourly_distribution: {
+        Args: { _household?: string }
+        Returns: {
+          away_pct: number
+          charging_pct: number
+          hour_of_day: number
+          pause_pct: number
+          total: number
+          v2h_pct: number
+        }[]
+      }
+      ml_household_stats: {
+        Args: never
+        Returns: {
+          avg_sek_per_day: number
+          cable_in_min: number
+          cable_out_min: number
+          charge_hours_per_day: number
+          charge_start_min: number
+          household_id: string
+          morning_guarantee_pct: number
+          name: string
+          total_days: number
+          v2h_coverage_pct: number
+          v2h_hours_per_day: number
+        }[]
+      }
+      ml_kpis: { Args: never; Returns: Json }
       spot_prices_days: {
         Args: { _month: number; _year: number }
         Returns: {
