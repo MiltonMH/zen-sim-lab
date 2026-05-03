@@ -26,10 +26,9 @@ const DEFAULT_PEAK_TARIFF = 55;   // SEK/kW/month fallback
 const DC_EFFICIENCY = 0.95;       // both directions
 
 // Universal V2H/charge engine (smart_v2x):
-// Decisions are made on TODAY'S relative price percentiles, not absolute thresholds.
-const CHEAP_PERCENTILE = 0.33;        // bottom 33% of today's prices = "cheap, charge"
-const EXPENSIVE_PERCENTILE = 0.67;    // top 33% of today's prices = "expensive, V2H"
-const FLAT_DAY_SPREAD_SEK = 0.15;     // if max-min < 0.15 SEK → no V2H today
+// Lookahead daily planning — analyze full 24h price curve, lock cheapest sleeping
+// hours for charging, plan V2H during expensive hours with margin above charge cost.
+const V2H_MARGIN_SEK = 0.10;          // SEK/kWh required spread above avg charge cost
 
 // Default consumption weights (pendlare style) if profile missing
 const DEFAULT_WEIGHTS = [
@@ -310,23 +309,8 @@ Deno.serve(async (req) => {
       }
 
       const maxPrice = Math.max(...dayHours.map(h => h.price));
-      const minPrice = Math.min(...dayHours.map(h => h.price));
       const dailyAvgPrice = dayHours.reduce((s, h) => s + h.price, 0) / dayHours.length;
       const maxWeight = Math.max(...dayHours.map(h => h.weight));
-
-      // --- Universal engine: today's relative price thresholds ---
-      const sortedPrices = [...dayHours.map(h => h.price)].sort((a, b) => a - b);
-      const pctIdx = (p: number) => Math.min(sortedPrices.length - 1, Math.max(0, Math.floor(p * (sortedPrices.length - 1))));
-      const cheapThreshold = sortedPrices[pctIdx(CHEAP_PERCENTILE)];
-      const expensiveThreshold = sortedPrices[pctIdx(EXPENSIVE_PERCENTILE)];
-      const daySpread = maxPrice - minPrice;
-      const flatPriceDay = daySpread < FLAT_DAY_SPREAD_SEK;
-      // For each price, percentile rank 0..1 (0 = cheapest, 1 = most expensive)
-      const pricePercentile = (price: number) => {
-        let below = 0;
-        for (const p of sortedPrices) if (p < price) below++;
-        return sortedPrices.length > 1 ? below / (sortedPrices.length - 1) : 0.5;
-      };
 
       const scored = dayHours.map((h, idx) => {
         const priceScore = maxPrice > 0 ? 1 - (h.price / maxPrice) : 1;
@@ -341,54 +325,93 @@ Deno.serve(async (req) => {
         return hod >= returnTime || hod < leaveTime;
       };
 
-      // Pick top N candidates by combined score, restricted to connected hours.
+      // Sleeping zone (sleep_time → wake_time, wraps midnight)
+      const sleepTime = Number(hh.sleep_time ?? 23);
+      const wakeTime = Number(hh.wake_time ?? 6);
+      const isInSleepingZone = (hod: number) => {
+        if (sleepTime === wakeTime) return false;
+        if (sleepTime > wakeTime) return hod >= sleepTime || hod < wakeTime;
+        return hod >= sleepTime && hod < wakeTime;
+      };
+
+      // ============================================================
+      // DAILY PLAN (smart_v2x lookahead) — see all 24h, then act
+      // ============================================================
+      const lockedChargeIsos = new Set<string>();
+      const plannedV2hIsos = new Set<string>();
+      let avgChargeCost = 0;
+      let v2hThreshold = 0;
+      let chargeHoursNeeded = 0;
+
+      if (mode === "smart_v2x") {
+        const hourCosts = scored.map(h => ({
+          h,
+          totalCost: (h.price + lookupTariff(h.iso, h.hourOfDay) + ENERGY_TAX_SEK) * VAT_MULTIPLIER,
+        }));
+        const avgDayCost = hourCosts.reduce((s, x) => s + x.totalCost, 0) / hourCosts.length;
+        const cheap = [...hourCosts].sort((a, b) => a.totalCost - b.totalCost);
+
+        const driveKwh = dailyKwhNeeded;
+        const currentSocKwh = (soc / 100) * batteryKwh;
+        const targetSocKwh = (householdMaxSoc / 100) * batteryKwh;
+        const kwhToCharge = Math.max(driveKwh, targetSocKwh - currentSocKwh);
+        const effChargeKw = Math.max(0.5, chargeMaxKw * DC_EFFICIENCY);
+        chargeHoursNeeded = Math.ceil(kwhToCharge / effChargeKw);
+
+        const sleepingCheap = cheap.filter(c =>
+          isInSleepingZone(c.h.hourOfDay) && isConnectedHour(c.h.hourOfDay)
+        ).slice(0, chargeHoursNeeded);
+
+        // fall back to cheapest connected pre-leave hours if not enough sleep hours
+        if (sleepingCheap.length < chargeHoursNeeded) {
+          const extra = cheap.filter(c =>
+            !isInSleepingZone(c.h.hourOfDay) &&
+            isConnectedHour(c.h.hourOfDay) &&
+            c.h.hourOfDay < leaveTime
+          ).slice(0, chargeHoursNeeded - sleepingCheap.length);
+          for (const e of extra) sleepingCheap.push(e);
+        }
+
+        for (const c of sleepingCheap) lockedChargeIsos.add(c.h.iso);
+
+        avgChargeCost = sleepingCheap.length > 0
+          ? sleepingCheap.reduce((s, c) => s + c.totalCost, 0) / sleepingCheap.length
+          : avgDayCost;
+        v2hThreshold = avgChargeCost + V2H_MARGIN_SEK;
+
+        for (const x of hourCosts) {
+          if (
+            x.totalCost > v2hThreshold &&
+            isConnectedHour(x.h.hourOfDay) &&
+            !isInSleepingZone(x.h.hourOfDay) &&
+            !lockedChargeIsos.has(x.h.iso)
+          ) {
+            plannedV2hIsos.add(x.h.iso);
+          }
+        }
+
+        if (daysProcessed <= 3) {
+          console.log(
+            "[smart_v2x plan] day", day,
+            "lockedCharge:", lockedChargeIsos.size,
+            "plannedV2h:", plannedV2hIsos.size,
+            "avgChargeCost:", avgChargeCost.toFixed(3),
+            "v2hThreshold:", v2hThreshold.toFixed(3),
+            "kwhToCharge:", kwhToCharge.toFixed(1),
+          );
+        }
+      }
+
+      // legacy charge picks
+      const cheapestPicks = [...scored]
+        .filter(h => isConnectedHour(h.hourOfDay))
+        .sort((a, b) => a.price - b.price);
+      const basicPicks = new Set<number>(cheapestPicks.slice(0, TARGET_CHARGE_HOURS).map(r => r.idx));
       const ranked = [...scored]
         .filter(h => isConnectedHour(h.hourOfDay))
         .sort((a, b) => b.combined - a.combined);
-
-      // smart_charge_basic: 8 cheapest connected hours by spot price only
-      const cheapest = [...scored]
-        .filter(h => isConnectedHour(h.hourOfDay))
-        .sort((a, b) => a.price - b.price);
-      const basicPicks = new Set<number>(cheapest.slice(0, TARGET_CHARGE_HOURS).map(r => r.idx));
       const smartPicks = new Set<number>(ranked.slice(0, TARGET_CHARGE_HOURS).map(r => r.idx));
       const pickedCharge = mode === "smart_charge_basic" ? basicPicks : smartPicks;
-
-      // Overnight recharge guarantee (smart_v2x): reserve cheapest hours before next leave_time
-      // to refill from current SoC up to max_soc. Reserved hours cannot be used for V2H.
-      const reservedRechargeIsos = new Set<string>();
-      const preChargeIsos = new Set<string>();
-      let preChargeTarget = householdMaxSoc;
-      if (mode === "smart_v2x") {
-        const kwhToFill = Math.max(0, ((householdMaxSoc - soc) / 100) * batteryKwh);
-        if (kwhToFill > 0) {
-          const hoursNeeded = Math.ceil(kwhToFill / (Math.min(ARC_MAX_KW, maxDcChargeKw) * DC_EFFICIENCY));
-          const beforeLeave = [...scored]
-            .filter(h => isConnectedHour(h.hourOfDay) && h.hourOfDay < leaveTime)
-            .sort((a, b) => a.price - b.price)
-            .slice(0, hoursNeeded);
-          for (const h of beforeLeave) reservedRechargeIsos.add(h.iso);
-        }
-
-        // --- Pre-charge strategy: if tonight's evening prices are expensive,
-        // top up extra during cheapest 01:00-06:00 hours so we have more V2H ammo.
-        const eveningHours = dayHours.filter(h => h.hourOfDay >= 16 && h.hourOfDay <= 22);
-        if (eveningHours.length > 0) {
-          const eveningAvg = eveningHours.reduce((s, h) => s + h.price, 0) / eveningHours.length;
-          const expensiveEvening = eveningAvg > dailyAvgPrice * 1.25;
-          preChargeTarget = expensiveEvening
-            ? Math.min(SOC_HEALTH_MAX, householdMaxSoc + 10)
-            : householdMaxSoc;
-          if (preChargeTarget > soc) {
-            const kwhToPrecharge = Math.max(0, ((preChargeTarget - soc) / 100) * batteryKwh);
-            const morningHours = [...scored]
-              .filter(h => h.hourOfDay >= 1 && h.hourOfDay <= 6 && isConnectedHour(h.hourOfDay))
-              .sort((a, b) => a.price - b.price);
-            const hoursNeeded = Math.ceil(kwhToPrecharge / (Math.min(ARC_MAX_KW, maxDcChargeKw) * DC_EFFICIENCY));
-            for (const h of morningHours.slice(0, hoursNeeded)) preChargeIsos.add(h.iso);
-          }
-        }
-      }
 
       const baselineConnectedHours = [...scored]
         .filter(h => isConnectedHour(h.hourOfDay))
@@ -398,7 +421,6 @@ Deno.serve(async (req) => {
       let dayChargeCost = 0;
       let dayChargeCostWithTariff = 0;
 
-      // V2H allowed for smart_charge (legacy peak window) and smart_v2x (smart logic)
       const v2hAllowed = mode !== "smart_charge_basic" && ccs2Port;
 
       for (const h of scored) {
@@ -412,29 +434,25 @@ Deno.serve(async (req) => {
         let gridDrawKw = hourConsKw;
         const connected = isConnectedHour(h.hourOfDay);
 
-        // Fuse-aware available charging headroom
         const fuseAvailableKw = Math.max(0, fuseMaxKw - hourConsKw);
         const effectiveChargeKw = Math.min(chargeMaxKw, fuseAvailableKw);
+        const fuseHeadroomKw = fuseAvailableKw;
 
-        // SoC bounds — smart_v2x uses customer-configured min/max; legacy modes use defaults.
         const upperSocCap = mode === "smart_v2x" ? householdMaxSoc : SOC_PROTECT;
         const v2hSocFloor = mode === "smart_v2x" ? householdMinSoc : Math.max(minSoc, 35);
 
-        // Universal V2H power scaling — based on today's price percentile.
-        const fuseHeadroomKw = Math.max(0, fuseMaxKw - hourConsKw);
-        const v2hPowerForPercentile = (pct: number): number => {
-          let target: number;
-          if (pct >= 0.90) target = 11;
-          else if (pct >= 0.75) target = 9;
-          else if (pct >= 0.60) target = 7;
-          else target = 5;
-          return Math.min(target, v2hMaxKw, fuseHeadroomKw);
-        };
+        // Morning guarantee: force charge in remaining pre-leave hours if SoC too low
+        let morningGuaranteeForce = false;
+        if (mode === "smart_v2x" && connected && h.hourOfDay < leaveTime && soc < householdMaxSoc - 10) {
+          const hoursLeft = leaveTime - h.hourOfDay;
+          const kwhStillNeeded = ((householdMaxSoc - soc) / 100) * batteryKwh;
+          const kwhPossible = hoursLeft * chargeMaxKw * DC_EFFICIENCY;
+          if (kwhPossible <= kwhStillNeeded * 1.05) morningGuaranteeForce = true;
+        }
 
         if (!connected) {
           decision = "pause";
           reason = "cable_disconnected";
-          // Belt-and-suspenders: guarantee no charge or V2H happens while disconnected
           chargeKw = 0;
           v2hSaving = 0;
           gridDrawKw = hourConsKw;
@@ -445,9 +463,6 @@ Deno.serve(async (req) => {
           decision = "emergency_charge";
           chargeKw = effectiveChargeKw;
           reason = "soc_below_min_emergency";
-        } else if (mode === "smart_v2x" && soc >= upperSocCap) {
-          decision = "pause";
-          reason = `max_soc_reached: ${soc.toFixed(0)}% at ceiling`;
         } else if (mode !== "smart_v2x" && soc > upperSocCap) {
           decision = "pause";
           reason = "soc_above_protect";
@@ -456,62 +471,16 @@ Deno.serve(async (req) => {
           reason = `spot_above_${priceThreshold}sek_blocked`;
           if (pickedCharge.has(h.idx)) peakHoursAvoided++;
         }
-        // === Universal smart_v2x engine: percentile-based ===
+        // === Universal smart_v2x engine: lookahead daily plan ===
         else if (mode === "smart_v2x") {
-          const isCheap = h.price <= cheapThreshold;
-          const isExpensive = !flatPriceDay && h.price >= expensiveThreshold;
-          const houseConsumingNow = hourConsKw > 0.2;
-
-          // Nighttime V2H restriction (23:00-06:00) — bilen sover, huset drar lite,
-          // batteriet behövs för morgonkörning. Tillåt bara vid extrema priser.
-          const v2hAllowedHour = h.hourOfDay >= 6 && h.hourOfDay < 23;
-          const extremePriceOverride = h.price > 2.0 && soc > 60 && h.hourOfDay >= 5;
-          const v2hTimeOk = v2hAllowedHour || extremePriceOverride;
-
-          // Pre-charge: forced charge during reserved morning hours to reach preChargeTarget
-          if (preChargeIsos.has(h.iso) && soc < preChargeTarget) {
-            const projectedGridKw = hourConsKw + effectiveChargeKw;
-            const currentMonthlyPeak = monthlyPeak.get(monthKey) ?? 0;
+          if (morningGuaranteeForce && soc < householdMaxSoc) {
             decision = "charge";
             chargeKw = effectiveChargeKw;
-            reason = `precharge_for_v2h: target ${preChargeTarget.toFixed(0)}%`;
-            if (projectedGridKw > currentMonthlyPeak) monthlyPeak.set(monthKey, projectedGridKw);
-          } else if (
-            v2hAllowed && isExpensive && v2hTimeOk &&
-            soc > v2hSocFloor &&
-            houseConsumingNow &&
-            fuseHeadroomKw > 1 &&
-            !reservedRechargeIsos.has(h.iso)
-          ) {
-            const pct = pricePercentile(h.price);
-            const rawDischargeKw = v2hPowerForPercentile(pct);
-            // V2H can only supply what the house actually draws —
-            // Arc cannot export to grid, so excess power is wasted.
-            const dischargeKw = Math.min(
-              rawDischargeKw,
-              v2hMaxKw,
-              fuseHeadroomKw,
-              hourConsKw,
-            );
-            if (dischargeKw > 0.1) {
-              decision = "v2h";
-              chargeKw = -dischargeKw;
-              v2hSaving = dischargeKw * totalCostPerKwh;
-              gridDrawKw = Math.max(0, hourConsKw - dischargeKw);
-              reason = extremePriceOverride && !v2hAllowedHour
-                ? `v2h_extreme_price_override: ${h.price.toFixed(3)} SEK at hour ${h.hourOfDay} (capped to ${dischargeKw.toFixed(1)} kW house load)`
-                : `v2h_expensive_hour: ${h.price.toFixed(3)} SEK above ${expensiveThreshold.toFixed(3)} (capped to ${dischargeKw.toFixed(1)} kW house load)`;
-              totalV2hKwh += dischargeKw;
-              totalV2hSavingSek += v2hSaving;
-            } else {
-              decision = "pause";
-              reason = "v2h_no_house_load";
-            }
-          } else if (v2hAllowed && isExpensive && !v2hTimeOk && soc > v2hSocFloor) {
-            decision = "pause";
-            reason = `v2h_nighttime_restricted: hour ${h.hourOfDay} (23-06 sleep window)`;
-          } else if (isCheap && soc < upperSocCap) {
-            // Effekttariff guardrail
+            reason = `morning_guarantee_override: soc ${soc.toFixed(0)}% before leave`;
+            const projectedGridKw = hourConsKw + effectiveChargeKw;
+            const cur = monthlyPeak.get(monthKey) ?? 0;
+            if (projectedGridKw > cur) monthlyPeak.set(monthKey, projectedGridKw);
+          } else if (lockedChargeIsos.has(h.iso) && soc < householdMaxSoc) {
             const projectedGridKw = hourConsKw + effectiveChargeKw;
             const currentMonthlyPeak = monthlyPeak.get(monthKey) ?? 0;
             if (
@@ -534,18 +503,41 @@ Deno.serve(async (req) => {
             } else {
               decision = "charge";
               chargeKw = effectiveChargeKw;
-              reason = `charge_cheap_hour: ${h.price.toFixed(3)} SEK below ${cheapThreshold.toFixed(3)}`;
+              reason = `night_charge_planned: ${totalCostPerKwh.toFixed(2)} SEK/kWh`;
               if (projectedGridKw > currentMonthlyPeak) monthlyPeak.set(monthKey, projectedGridKw);
             }
-          } else if (flatPriceDay && pickedCharge.has(h.idx)) {
-            decision = "charge";
-            chargeKw = effectiveChargeKw;
-            reason = "flat_price_day_no_v2h";
+          } else if (
+            v2hAllowed &&
+            plannedV2hIsos.has(h.iso) &&
+            soc > v2hSocFloor &&
+            hourConsKw > 0.2 &&
+            fuseHeadroomKw > 0.2
+          ) {
+            const dischargeKw = Math.min(
+              ARC_MAX_KW,
+              v2hMaxKw,
+              fuseHeadroomKw,
+              hourConsKw,
+            );
+            if (dischargeKw > 0.2) {
+              decision = "v2h";
+              chargeKw = -dischargeKw;
+              v2hSaving = dischargeKw * Math.max(0, totalCostPerKwh - avgChargeCost);
+              gridDrawKw = Math.max(0, hourConsKw - dischargeKw);
+              const spread = totalCostPerKwh - avgChargeCost;
+              reason = `v2h_planned: grid ${totalCostPerKwh.toFixed(2)} vs charged ${avgChargeCost.toFixed(2)} spread +${spread.toFixed(2)}`;
+              totalV2hKwh += dischargeKw;
+              totalV2hSavingSek += v2hSaving;
+            } else {
+              decision = "pause";
+              reason = "v2h_no_house_load";
+            }
+          } else if (soc >= upperSocCap) {
+            decision = "pause";
+            reason = `max_soc_reached: ${soc.toFixed(0)}% at ceiling`;
           } else {
             decision = "pause";
-            reason = flatPriceDay
-              ? "flat_price_day_no_v2h"
-              : `pause_middle_price: ${h.price.toFixed(3)} SEK between thresholds`;
+            reason = "no_action: price similar to charge cost";
           }
         }
         // === Legacy smart_charge / smart_charge_basic ===
