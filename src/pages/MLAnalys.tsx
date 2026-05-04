@@ -160,21 +160,42 @@ export default function MLAnalys() {
         supabase.rpc("ml_challenges"),
         supabase.from("household_profiles").select("leave_time, return_time"),
       ]);
-      const hours = (h ?? []) as HourRow[];
-      // ensure all 24 hours
+      const hours = (h ?? []) as any[];
+      // ensure all 24 hours, explicit mapping (RPC column order may differ)
       const filled: HourRow[] = Array.from({ length: 24 }, (_, i) => {
-        const r = hours.find((x) => x.hour_of_day === i);
-        return r ?? { hour_of_day: i, charging_pct: 0, v2h_pct: 0, away_pct: 0, pause_pct: 0, total: 0 };
+        const r = hours.find((x) => Number(x.hour_of_day) === i);
+        return {
+          hour_of_day: i,
+          charging_pct: Number(r?.charging_pct ?? 0),
+          v2h_pct: Number(r?.v2h_pct ?? 0),
+          away_pct: Number(r?.away_pct ?? 0),
+          pause_pct: Number(r?.pause_pct ?? 0),
+          total: Number(r?.total ?? 0),
+        };
       });
+      console.log('[MLAnalys] hourly data:', filled);
+      console.log('[MLAnalys] empty:', filled.every((r) => r.total === 0));
+      console.log('[MLAnalys] kpis:', k);
       setHourly(filled);
       setStats((s ?? []) as HouseholdStats[]);
-      setKpis((k as Kpis) ?? null);
+      setKpis((k as Kpis) ?? {
+        total_sims: 0,
+        total_households: 0,
+        avg_v2h_hours_per_day: null,
+        avg_cable_in_min: null,
+        avg_cable_out_min: null,
+        avg_charge_start_min: null,
+        avg_v2h_start_min: null,
+        v2h_coverage_pct: null,
+        morning_guarantee_pct: null,
+      });
       setChallenges((c as Challenges) ?? null);
       if (hp?.length) {
         setAvgLeave(Math.round(hp.reduce((a, x) => a + (x.leave_time ?? 0), 0) / hp.length));
         setAvgReturn(Math.round(hp.reduce((a, x) => a + (x.return_time ?? 0), 0) / hp.length));
       }
-      setEmpty(filled.every((r) => r.total === 0));
+      const hasData = filled.some((r) => r.total > 0);
+      setEmpty(!hasData);
       setLoading(false);
     })();
   }, []);
