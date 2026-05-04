@@ -380,11 +380,23 @@ Deno.serve(async (req) => {
         v2hThreshold = avgChargeCost + V2H_MARGIN_SEK;
 
         for (const x of hourCosts) {
+          const hod = x.h.hourOfDay;
+          const inEveningWindow = sleepTime > returnTime
+            ? (hod >= returnTime && hod < sleepTime)
+            : (hod >= returnTime || hod < sleepTime);
+          const inMorningWindow = leaveTime > wakeTime
+            ? (hod >= wakeTime && hod < leaveTime)
+            : false;
+
           if (
-            x.totalCost > v2hThreshold &&
-            isConnectedHour(x.h.hourOfDay) &&
-            !isInSleepingZone(x.h.hourOfDay) &&
-            !lockedChargeIsos.has(x.h.iso)
+            isConnectedHour(hod) &&
+            !isInSleepingZone(hod) &&
+            !lockedChargeIsos.has(x.h.iso) &&
+            (
+              x.totalCost > v2hThreshold
+              || inEveningWindow
+              || (inMorningWindow && x.totalCost > v2hThreshold * 0.95)
+            )
           ) {
             plannedV2hIsos.add(x.h.iso);
           }
