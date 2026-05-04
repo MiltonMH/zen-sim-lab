@@ -153,15 +153,24 @@ export default function MLAnalys() {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const [{ data: h }, { data: s }, { data: k }, { data: c }, { data: hp }] = await Promise.all([
-        supabase.rpc("ml_hourly_distribution", { _household: null }),
-        supabase.rpc("ml_household_stats"),
-        supabase.rpc("ml_kpis"),
-        supabase.rpc("ml_challenges"),
-        supabase.from("household_profiles").select("leave_time, return_time"),
+      const safe = async <T,>(p: Promise<{ data: T | null; error: any }>, label: string) => {
+        try {
+          const { data, error } = await p;
+          if (error) console.error(`[MLAnalys] ${label} error:`, error);
+          return data;
+        } catch (e) {
+          console.error(`[MLAnalys] ${label} threw:`, e);
+          return null;
+        }
+      };
+      const [h, s, k, c, hp] = await Promise.all([
+        safe(supabase.rpc("ml_hourly_distribution", { _household: null }) as any, "ml_hourly_distribution"),
+        safe(supabase.rpc("ml_household_stats") as any, "ml_household_stats"),
+        safe(supabase.rpc("ml_kpis") as any, "ml_kpis"),
+        safe(supabase.rpc("ml_challenges") as any, "ml_challenges"),
+        safe(supabase.from("household_profiles").select("leave_time, return_time") as any, "household_profiles"),
       ]);
-      const hours = (h ?? []) as any[];
-      // ensure all 24 hours, explicit mapping (RPC column order may differ)
+      const hours = (Array.isArray(h) ? h : []) as any[];
       const filled: HourRow[] = Array.from({ length: 24 }, (_, i) => {
         const r = hours.find((x) => Number(x.hour_of_day) === i);
         return {
@@ -173,26 +182,21 @@ export default function MLAnalys() {
           total: Number(r?.total ?? 0),
         };
       });
-      console.log('[MLAnalys] hourly data:', filled);
-      console.log('[MLAnalys] empty:', filled.every((r) => r.total === 0));
-      console.log('[MLAnalys] kpis:', k);
+      console.log('[MLAnalys] hourly rows:', hours.length, 'filled total sum:', filled.reduce((a, r) => a + r.total, 0));
+      console.log('[MLAnalys] kpis:', k, 'stats rows:', Array.isArray(s) ? s.length : 0);
       setHourly(filled);
-      setStats((s ?? []) as HouseholdStats[]);
+      setStats((Array.isArray(s) ? s : []) as HouseholdStats[]);
       setKpis((k as Kpis) ?? {
-        total_sims: 0,
-        total_households: 0,
-        avg_v2h_hours_per_day: null,
-        avg_cable_in_min: null,
-        avg_cable_out_min: null,
-        avg_charge_start_min: null,
-        avg_v2h_start_min: null,
-        v2h_coverage_pct: null,
-        morning_guarantee_pct: null,
+        total_sims: 0, total_households: 0,
+        avg_v2h_hours_per_day: null, avg_cable_in_min: null, avg_cable_out_min: null,
+        avg_charge_start_min: null, avg_v2h_start_min: null,
+        v2h_coverage_pct: null, morning_guarantee_pct: null,
       });
       setChallenges((c as Challenges) ?? null);
-      if (hp?.length) {
-        setAvgLeave(Math.round(hp.reduce((a, x) => a + (x.leave_time ?? 0), 0) / hp.length));
-        setAvgReturn(Math.round(hp.reduce((a, x) => a + (x.return_time ?? 0), 0) / hp.length));
+      const hpArr = (Array.isArray(hp) ? hp : []) as any[];
+      if (hpArr.length) {
+        setAvgLeave(Math.round(hpArr.reduce((a, x) => a + (x.leave_time ?? 0), 0) / hpArr.length));
+        setAvgReturn(Math.round(hpArr.reduce((a, x) => a + (x.return_time ?? 0), 0) / hpArr.length));
       }
       const hasData = filled.some((r) => r.total > 0);
       setEmpty(!hasData);
