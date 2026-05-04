@@ -510,14 +510,14 @@ Deno.serve(async (req) => {
             v2hAllowed &&
             plannedV2hIsos.has(h.iso) &&
             soc > v2hSocFloor &&
-            hourConsKw > 0.2 &&
+            hourConsKw > 0.05 &&
             fuseHeadroomKw > 0.2
           ) {
             const dischargeKw = Math.min(
               ARC_MAX_KW,
               v2hMaxKw,
               fuseHeadroomKw,
-              hourConsKw,
+              Math.max(hourConsKw, 1.0)
             );
             if (dischargeKw > 0.2) {
               decision = "v2h";
