@@ -654,6 +654,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      ml_best_v2h_hour: {
+        Args: never
+        Returns: {
+          hour_of_day: number
+          v2h_pct: number
+        }[]
+      }
       ml_challenges: { Args: never; Returns: Json }
       ml_decision_category: {
         Args: { _decision: string; _reason: string }
@@ -687,6 +694,15 @@ export type Database = {
         }[]
       }
       ml_kpis: { Args: never; Returns: Json }
+      ml_v2h_heatmap: {
+        Args: never
+        Returns: {
+          hour_of_day: number
+          total: number
+          v2h_pct: number
+          weekday: number
+        }[]
+      }
       spot_prices_days: {
         Args: { _month: number; _year: number }
         Returns: {
