@@ -58,6 +58,9 @@ type Challenges = {
   missed_v2h_pct: number | null; extreme_hours_count: number;
   extreme_v2h_pct: number | null; flat_days_count: number;
 };
+type HeatmapRow = { weekday: number; hour_of_day: number; v2h_pct: number; total: number };
+type BestHour = { hour_of_day: number; v2h_pct: number };
+const WEEKDAYS = ["Söndag", "Måndag", "Tisdag", "Onsdag", "Torsdag", "Fredag", "Lördag"];
 
 function toneClass(value: number | null | undefined, good: number, warn: number, reverse = false) {
   if (value == null) return "text-muted-foreground";
