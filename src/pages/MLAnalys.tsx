@@ -141,6 +141,47 @@ function HourBar({ data, leaveHour, returnHour }: { data: HourRow[]; leaveHour?:
   );
 }
 
+function Heatmap({ data }: { data: HeatmapRow[] }) {
+  const grid: (number | null)[][] = WEEKDAYS.map(() => Array(24).fill(null));
+  data.forEach((d) => {
+    const wd = ((d.weekday % 7) + 7) % 7;
+    grid[wd][d.hour_of_day] = Number(d.v2h_pct ?? 0);
+  });
+  const max = Math.max(1, ...data.map((d) => Number(d.v2h_pct ?? 0)));
+  // Display Monday first
+  const order = [1, 2, 3, 4, 5, 6, 0];
+  return (
+    <div className="min-w-[640px]">
+      <div className="grid" style={{ gridTemplateColumns: "70px repeat(24, minmax(0,1fr))" }}>
+        <div />
+        {Array.from({ length: 24 }).map((_, h) => (
+          <div key={h} className="text-[10px] text-muted-foreground text-center py-1 tabular-nums">
+            {String(h).padStart(2, "0")}
+          </div>
+        ))}
+        {order.map((wd) => (
+          <>
+            <div key={`l-${wd}`} className="text-xs text-muted-foreground py-1.5 pr-2 flex items-center">
+              {WEEKDAYS[wd]}
+            </div>
+            {grid[wd].map((v, h) => {
+              const a = v == null ? 0 : Math.max(0.05, v / max);
+              return (
+                <div
+                  key={`${wd}-${h}`}
+                  className="aspect-square rounded-sm m-[1px]"
+                  style={{ background: `hsla(239, 84%, 47%, ${a})` }}
+                  title={`${WEEKDAYS[wd]} kl ${String(h).padStart(2, "0")}:00 — ${v == null ? "0" : v.toFixed(1)}% V2H`}
+                />
+              );
+            })}
+          </>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function MLAnalys() {
   const [loading, setLoading] = useState(true);
   const [empty, setEmpty] = useState(false);
