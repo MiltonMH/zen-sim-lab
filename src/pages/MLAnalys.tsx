@@ -337,7 +337,7 @@ export default function MLAnalys() {
                   style={{ cursor: "pointer" }}>
                   {stats.map((s, i) => {
                     const v = s.v2h_hours_per_day || 0;
-                    const fill = v > 8 ? COLORS.charging : v >= 4 ? COLORS.orange : COLORS.red;
+                    const fill = v > 5 ? COLORS.charging : v >= 3 ? COLORS.orange : COLORS.red;
                     return <Cell key={i} fill={fill} />;
                   })}
                 </Bar>
