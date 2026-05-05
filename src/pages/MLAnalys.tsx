@@ -378,7 +378,68 @@ export default function MLAnalys() {
         </Card>
       </section>
 
-      {/* SECTION 4 — Challenges */}
+      {/* SECTION 4 — Heatmap */}
+      <section>
+        <div className="mb-3">
+          <h2 className="text-xl font-semibold">Beteendemönster — veckoöversikt</h2>
+          <p className="text-sm text-muted-foreground">Andel V2H per veckodag och timme</p>
+        </div>
+        <Card className="p-5 rounded-2xl overflow-x-auto">
+          <Heatmap data={heatmap} />
+          <div className="flex items-center gap-3 mt-4 text-xs text-muted-foreground">
+            <span>Mindre V2H</span>
+            <div className="flex h-3">
+              {[0, 0.2, 0.4, 0.6, 0.8, 1].map((a, i) => (
+                <div key={i} className="w-6" style={{ background: `hsla(239, 84%, 47%, ${a || 0.05})` }} />
+              ))}
+            </div>
+            <span>Mer V2H</span>
+          </div>
+        </Card>
+      </section>
+
+      {/* SECTION 5 — Key insights */}
+      <section>
+        <div className="mb-3">
+          <h2 className="text-xl font-semibold">Insikter</h2>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <Card className="p-5 rounded-2xl">
+            <div className="text-sm font-medium">Bästa V2H-timme</div>
+            <div className="text-3xl font-semibold mt-2 tabular-nums" style={{ color: COLORS.v2h }}>
+              {bestHour ? hourToHHMM(bestHour.hour_of_day) : "—"}
+            </div>
+            <div className="text-xs text-muted-foreground mt-2">
+              {bestHour ? `Mest V2H sker kl ${hourToHHMM(bestHour.hour_of_day)} (${pct(bestHour.v2h_pct)} av timmarna)` : "Ingen data"}
+            </div>
+          </Card>
+          <Card className="p-5 rounded-2xl">
+            <div className="text-sm font-medium flex items-center gap-2">
+              Morgongaranti
+              {(kpis?.morning_guarantee_pct ?? 0) >= 95 && (
+                <span style={{ color: COLORS.charging }}>✓</span>
+              )}
+            </div>
+            <div className={cn("text-3xl font-semibold mt-2 tabular-nums", toneClass(kpis?.morning_guarantee_pct, 95, 85))}>
+              {pct(kpis?.morning_guarantee_pct)}
+            </div>
+            <div className="text-xs text-muted-foreground mt-2">
+              av morgnar — bilen hade fullt batteri vid avfärd
+            </div>
+          </Card>
+          <Card className="p-5 rounded-2xl">
+            <div className="text-sm font-medium">Missad potential</div>
+            <div className="text-3xl font-semibold mt-2 tabular-nums" style={{ color: COLORS.orange }}>
+              {pct(challenges?.missed_v2h_pct)}
+            </div>
+            <div className="text-xs text-muted-foreground mt-2">
+              av dyra kvällar utan V2H — förbättringspotential
+            </div>
+          </Card>
+        </div>
+      </section>
+
+      {/* SECTION 6 — Challenges */}
       <section>
         <div className="mb-3">
           <h2 className="text-xl font-semibold">Avvikelser och utmaningar</h2>
