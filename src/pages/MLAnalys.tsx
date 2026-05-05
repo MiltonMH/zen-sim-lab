@@ -168,12 +168,14 @@ export default function MLAnalys() {
           return null;
         }
       };
-      const [h, s, k, c, hp] = await Promise.all([
+      const [h, s, k, c, hp, hm, bh] = await Promise.all([
         safe(supabase.rpc("ml_hourly_distribution", { _household: null }) as any, "ml_hourly_distribution"),
         safe(supabase.rpc("ml_household_stats") as any, "ml_household_stats"),
         safe(supabase.rpc("ml_kpis") as any, "ml_kpis"),
         safe(supabase.rpc("ml_challenges") as any, "ml_challenges"),
         safe(supabase.from("household_profiles").select("leave_time, return_time") as any, "household_profiles"),
+        safe(supabase.rpc("ml_v2h_heatmap") as any, "ml_v2h_heatmap"),
+        safe(supabase.rpc("ml_best_v2h_hour") as any, "ml_best_v2h_hour"),
       ]);
       const hours = (Array.isArray(h) ? h : []) as any[];
       const filled: HourRow[] = Array.from({ length: 24 }, (_, i) => {
