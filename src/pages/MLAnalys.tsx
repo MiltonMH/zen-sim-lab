@@ -58,6 +58,9 @@ type Challenges = {
   missed_v2h_pct: number | null; extreme_hours_count: number;
   extreme_v2h_pct: number | null; flat_days_count: number;
 };
+type HeatmapRow = { weekday: number; hour_of_day: number; v2h_pct: number; total: number };
+type BestHour = { hour_of_day: number; v2h_pct: number };
+const WEEKDAYS = ["Söndag", "Måndag", "Tisdag", "Onsdag", "Torsdag", "Fredag", "Lördag"];
 
 function toneClass(value: number | null | undefined, good: number, warn: number, reverse = false) {
   if (value == null) return "text-muted-foreground";
@@ -138,6 +141,47 @@ function HourBar({ data, leaveHour, returnHour }: { data: HourRow[]; leaveHour?:
   );
 }
 
+function Heatmap({ data }: { data: HeatmapRow[] }) {
+  const grid: (number | null)[][] = WEEKDAYS.map(() => Array(24).fill(null));
+  data.forEach((d) => {
+    const wd = ((d.weekday % 7) + 7) % 7;
+    grid[wd][d.hour_of_day] = Number(d.v2h_pct ?? 0);
+  });
+  const max = Math.max(1, ...data.map((d) => Number(d.v2h_pct ?? 0)));
+  // Display Monday first
+  const order = [1, 2, 3, 4, 5, 6, 0];
+  return (
+    <div className="min-w-[640px]">
+      <div className="grid" style={{ gridTemplateColumns: "70px repeat(24, minmax(0,1fr))" }}>
+        <div />
+        {Array.from({ length: 24 }).map((_, h) => (
+          <div key={h} className="text-[10px] text-muted-foreground text-center py-1 tabular-nums">
+            {String(h).padStart(2, "0")}
+          </div>
+        ))}
+        {order.map((wd) => (
+          <>
+            <div key={`l-${wd}`} className="text-xs text-muted-foreground py-1.5 pr-2 flex items-center">
+              {WEEKDAYS[wd]}
+            </div>
+            {grid[wd].map((v, h) => {
+              const a = v == null ? 0 : Math.max(0.05, v / max);
+              return (
+                <div
+                  key={`${wd}-${h}`}
+                  className="aspect-square rounded-sm m-[1px]"
+                  style={{ background: `hsla(239, 84%, 47%, ${a})` }}
+                  title={`${WEEKDAYS[wd]} kl ${String(h).padStart(2, "0")}:00 — ${v == null ? "0" : v.toFixed(1)}% V2H`}
+                />
+              );
+            })}
+          </>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function MLAnalys() {
   const [loading, setLoading] = useState(true);
   const [empty, setEmpty] = useState(false);
@@ -149,6 +193,8 @@ export default function MLAnalys() {
   const [avgReturn, setAvgReturn] = useState<number | undefined>();
   const [openHh, setOpenHh] = useState<HouseholdStats | null>(null);
   const [hhHourly, setHhHourly] = useState<HourRow[]>([]);
+  const [heatmap, setHeatmap] = useState<HeatmapRow[]>([]);
+  const [bestHour, setBestHour] = useState<BestHour | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -163,12 +209,14 @@ export default function MLAnalys() {
           return null;
         }
       };
-      const [h, s, k, c, hp] = await Promise.all([
+      const [h, s, k, c, hp, hm, bh] = await Promise.all([
         safe(supabase.rpc("ml_hourly_distribution", { _household: null }) as any, "ml_hourly_distribution"),
         safe(supabase.rpc("ml_household_stats") as any, "ml_household_stats"),
         safe(supabase.rpc("ml_kpis") as any, "ml_kpis"),
         safe(supabase.rpc("ml_challenges") as any, "ml_challenges"),
         safe(supabase.from("household_profiles").select("leave_time, return_time") as any, "household_profiles"),
+        safe(supabase.rpc("ml_v2h_heatmap") as any, "ml_v2h_heatmap"),
+        safe(supabase.rpc("ml_best_v2h_hour") as any, "ml_best_v2h_hour"),
       ]);
       const hours = (Array.isArray(h) ? h : []) as any[];
       const filled: HourRow[] = Array.from({ length: 24 }, (_, i) => {
@@ -198,6 +246,9 @@ export default function MLAnalys() {
         setAvgLeave(Math.round(hpArr.reduce((a, x) => a + (x.leave_time ?? 0), 0) / hpArr.length));
         setAvgReturn(Math.round(hpArr.reduce((a, x) => a + (x.return_time ?? 0), 0) / hpArr.length));
       }
+      setHeatmap((Array.isArray(hm) ? hm : []) as HeatmapRow[]);
+      const bestArr = Array.isArray(bh) ? bh : [];
+      setBestHour(bestArr.length ? (bestArr[0] as BestHour) : null);
       const hasData = filled.some((r) => r.total > 0);
       setEmpty(!hasData);
       setLoading(false);
@@ -327,7 +378,7 @@ export default function MLAnalys() {
                   style={{ cursor: "pointer" }}>
                   {stats.map((s, i) => {
                     const v = s.v2h_hours_per_day || 0;
-                    const fill = v > 8 ? COLORS.charging : v >= 4 ? COLORS.orange : COLORS.red;
+                    const fill = v > 5 ? COLORS.charging : v >= 3 ? COLORS.orange : COLORS.red;
                     return <Cell key={i} fill={fill} />;
                   })}
                 </Bar>
@@ -368,7 +419,68 @@ export default function MLAnalys() {
         </Card>
       </section>
 
-      {/* SECTION 4 — Challenges */}
+      {/* SECTION 4 — Heatmap */}
+      <section>
+        <div className="mb-3">
+          <h2 className="text-xl font-semibold">Beteendemönster — veckoöversikt</h2>
+          <p className="text-sm text-muted-foreground">Andel V2H per veckodag och timme</p>
+        </div>
+        <Card className="p-5 rounded-2xl overflow-x-auto">
+          <Heatmap data={heatmap} />
+          <div className="flex items-center gap-3 mt-4 text-xs text-muted-foreground">
+            <span>Mindre V2H</span>
+            <div className="flex h-3">
+              {[0, 0.2, 0.4, 0.6, 0.8, 1].map((a, i) => (
+                <div key={i} className="w-6" style={{ background: `hsla(239, 84%, 47%, ${a || 0.05})` }} />
+              ))}
+            </div>
+            <span>Mer V2H</span>
+          </div>
+        </Card>
+      </section>
+
+      {/* SECTION 5 — Key insights */}
+      <section>
+        <div className="mb-3">
+          <h2 className="text-xl font-semibold">Insikter</h2>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <Card className="p-5 rounded-2xl">
+            <div className="text-sm font-medium">Bästa V2H-timme</div>
+            <div className="text-3xl font-semibold mt-2 tabular-nums" style={{ color: COLORS.v2h }}>
+              {bestHour ? hourToHHMM(bestHour.hour_of_day) : "—"}
+            </div>
+            <div className="text-xs text-muted-foreground mt-2">
+              {bestHour ? `Mest V2H sker kl ${hourToHHMM(bestHour.hour_of_day)} (${pct(bestHour.v2h_pct)} av timmarna)` : "Ingen data"}
+            </div>
+          </Card>
+          <Card className="p-5 rounded-2xl">
+            <div className="text-sm font-medium flex items-center gap-2">
+              Morgongaranti
+              {(kpis?.morning_guarantee_pct ?? 0) >= 95 && (
+                <span style={{ color: COLORS.charging }}>✓</span>
+              )}
+            </div>
+            <div className={cn("text-3xl font-semibold mt-2 tabular-nums", toneClass(kpis?.morning_guarantee_pct, 95, 85))}>
+              {pct(kpis?.morning_guarantee_pct)}
+            </div>
+            <div className="text-xs text-muted-foreground mt-2">
+              av morgnar — bilen hade fullt batteri vid avfärd
+            </div>
+          </Card>
+          <Card className="p-5 rounded-2xl">
+            <div className="text-sm font-medium">Missad potential</div>
+            <div className="text-3xl font-semibold mt-2 tabular-nums" style={{ color: COLORS.orange }}>
+              {pct(challenges?.missed_v2h_pct)}
+            </div>
+            <div className="text-xs text-muted-foreground mt-2">
+              av dyra kvällar utan V2H — förbättringspotential
+            </div>
+          </Card>
+        </div>
+      </section>
+
+      {/* SECTION 6 — Challenges */}
       <section>
         <div className="mb-3">
           <h2 className="text-xl font-semibold">Avvikelser och utmaningar</h2>
