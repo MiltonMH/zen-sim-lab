@@ -152,6 +152,8 @@ export default function MLAnalys() {
   const [avgReturn, setAvgReturn] = useState<number | undefined>();
   const [openHh, setOpenHh] = useState<HouseholdStats | null>(null);
   const [hhHourly, setHhHourly] = useState<HourRow[]>([]);
+  const [heatmap, setHeatmap] = useState<HeatmapRow[]>([]);
+  const [bestHour, setBestHour] = useState<BestHour | null>(null);
 
   useEffect(() => {
     (async () => {
