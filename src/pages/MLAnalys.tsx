@@ -205,6 +205,9 @@ export default function MLAnalys() {
         setAvgLeave(Math.round(hpArr.reduce((a, x) => a + (x.leave_time ?? 0), 0) / hpArr.length));
         setAvgReturn(Math.round(hpArr.reduce((a, x) => a + (x.return_time ?? 0), 0) / hpArr.length));
       }
+      setHeatmap((Array.isArray(hm) ? hm : []) as HeatmapRow[]);
+      const bestArr = Array.isArray(bh) ? bh : [];
+      setBestHour(bestArr.length ? (bestArr[0] as BestHour) : null);
       const hasData = filled.some((r) => r.total > 0);
       setEmpty(!hasData);
       setLoading(false);
