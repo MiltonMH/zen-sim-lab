@@ -429,11 +429,27 @@ function DecisionChart({
             <Tooltip content={<HourTooltip showActivityOnly />} />
             <Bar dataKey="charge" name="Laddning kW" radius={[3, 3, 0, 0]}>
               {data.map((d, i) => (
-                <Cell key={i} fill={d.isEmergency ? COLORS.emergency : COLORS.charge} />
+                <Cell key={i} fill={d.isEmergency ? COLORS.emergency : "hsl(172, 66%, 34%)"} />
               ))}
             </Bar>
-            <Bar dataKey="v2h" name="V2H kW" fill={COLORS.v2h} radius={[0, 0, 3, 3]} />
+            <Bar dataKey="v2h" name="V2H kW" radius={[0, 0, 3, 3]}>
+              {data.map((d, i) => (
+                <Cell key={i} fill="hsl(239, 84%, 67%)" />
+              ))}
+            </Bar>
             <Bar dataKey="v2g" name="V2G kW" fill={COLORS.v2g} radius={[0, 0, 3, 3]} />
+            {/* Pause indicators (small bar at 1 kW for tone) */}
+            <Bar dataKey={(d: any) => d.pauseTone ? 1 : 0} name="Paus" radius={[3, 3, 0, 0]}>
+              {data.map((d, i) => {
+                const fill =
+                  d.pauseTone === "away" ? "hsl(220, 9%, 75%)" :
+                  d.pauseTone === "expensive" ? "hsl(13, 68%, 63%)" :
+                  d.pauseTone === "waiting" ? "hsl(220, 9%, 88%)" :
+                  "transparent";
+                return <Cell key={i} fill={fill} />;
+              })}
+            </Bar>
+          </ComposedChart>
           </ComposedChart>
         </ResponsiveContainer>
       </div>
