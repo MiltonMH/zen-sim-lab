@@ -341,12 +341,40 @@ function DecisionChart({
               tick={{ fontSize: 10 }}
               label={{ value: "SoC %", angle: 90, position: "insideRight", style: { fontSize: 10, fill: COLORS.soc } }}
             />
+            <YAxis yAxisId="house" hide domain={[0, "dataMax + 2"]} />
 
             {/* Price zones */}
             <ReferenceArea yAxisId="price" y1={0} y2={DAY_THRESHOLDS[0]} fill={COLORS.green} fillOpacity={0.08} />
             <ReferenceArea yAxisId="price" y1={DAY_THRESHOLDS[0]} y2={DAY_THRESHOLDS[1]} fill={COLORS.yellow} fillOpacity={0.08} />
             <ReferenceArea yAxisId="price" y1={DAY_THRESHOLDS[1]} y2={DAY_THRESHOLDS[2]} fill={COLORS.orange} fillOpacity={0.10} />
             <ReferenceArea yAxisId="price" y1={DAY_THRESHOLDS[2]} y2={maxPrice * 1.5} fill={COLORS.red} fillOpacity={0.10} />
+
+            {/* Bilen borta — gråa zoner */}
+            {awayRanges.map((r, i) => (
+              <ReferenceArea
+                key={`away-${i}`}
+                yAxisId="price"
+                x1={r.x1}
+                x2={r.x2}
+                fill="hsl(220, 9%, 85%)"
+                fillOpacity={0.4}
+                label={i === 0 ? { value: "Bilen borta", fontSize: 10, fill: "hsl(220, 9%, 35%)", position: "insideTop" } : undefined}
+              />
+            ))}
+
+            {/* Husförbrukning */}
+            <Area
+              yAxisId="house"
+              type="monotone"
+              dataKey="houseKw"
+              name="Husförbrukning kW"
+              fill="hsl(36, 83%, 70%)"
+              fillOpacity={0.3}
+              stroke="hsl(36, 83%, 50%)"
+              strokeWidth={1.2}
+              isAnimationActive={false}
+              connectNulls
+            />
 
             {/* Threshold lines */}
             <ReferenceLine yAxisId="price" y={priceThreshold} stroke={COLORS.red} strokeDasharray="5 4" strokeWidth={1.2}
