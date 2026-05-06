@@ -450,7 +450,6 @@ function DecisionChart({
               })}
             </Bar>
           </ComposedChart>
-          </ComposedChart>
         </ResponsiveContainer>
       </div>
 
