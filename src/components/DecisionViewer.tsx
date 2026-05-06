@@ -642,18 +642,29 @@ function Field({ label, value, accent, bold }: { label: string; value: string; a
 function prettyReason(r: string | null): string {
   if (!r) return "—";
   const map: Record<string, string> = {
+    night_charge_planned: "Nattladdning — billigaste timmen",
+    v2h_planned: "V2H — dyrare än batterikostnaden",
+    evening_peak_v2h: "Kvällstopp — V2H aktiverad",
+    morning_v2h: "Morgon V2H — lönsamt",
+    cable_disconnected: "Bilen borta",
+    morning_guarantee: "Morgongaranti — laddar",
+    v2h_floor_reached: "Batterigolv nått — stoppar V2H",
+    no_action: "Inväntar bättre pris",
     too_cheap_to_ignore: "Pris extremt lågt — ladda alltid",
     best_combined_score: "Bästa kombinerade poäng",
     soc_above_95_protect: "Batteri nästan fullt",
     soc_below_20_emergency: "Kritisk SoC — nödladdning",
-    cable_disconnected: "Bilen ej hemma",
     minimum_dagsladdning: "Minimum för dagens körning",
     house_peak_consumption: "Hög hushållsförbrukning",
     lower_score: "Lägre prisscore",
     peak_price_v2h: "Topptimme — V2H aktiv",
-    no_action: "Ingen åtgärd",
   };
-  if (map[r]) return map[r];
-  if (r.startsWith("spot_above_")) return `Pris över tröskel`;
+  // Match prefix like "night_charge_planned: 0.42 SEK/kWh"
+  const key = r.split(":")[0].trim();
+  if (map[key]) return map[key];
+  for (const k of Object.keys(map)) {
+    if (r.includes(k)) return map[k];
+  }
+  if (r.startsWith("spot_above_")) return "Pris över tröskel";
   return r.replace(/_/g, " ");
 }
