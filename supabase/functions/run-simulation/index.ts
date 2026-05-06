@@ -754,10 +754,11 @@ Deno.serve(async (req) => {
         const reduction = Math.max(0, basePeak - actualPeak);
         if (reduction > 0) {
           const rawSaving = reduction * peakTariffPerKw;
-          const monthlyCap =
-            fuseAmps <= 16 ? 80 :
-            fuseAmps <= 20 ? 150 :
-            fuseAmps <= 25 ? 300 : 400;
+          const maxReductionKw =
+            fuseAmps <= 16 ? 3 :
+            fuseAmps <= 20 ? 4 :
+            fuseAmps <= 25 ? 5 : 6;
+          const monthlyCap = peakTariffPerKw * maxReductionKw;
           peakDemandSavingSek += Math.min(rawSaving, monthlyCap);
         }
       }
