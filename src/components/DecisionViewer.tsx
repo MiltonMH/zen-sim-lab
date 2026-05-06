@@ -90,7 +90,7 @@ export default function DecisionViewer({
       const toIso = `${periodTo}T23:59:59+00:00`;
       const [{ data: l }, { data: e }] = await Promise.all([
         supabase.from("optimization_logs")
-          .select("id,logged_at,decision,reason,spot_price_sek,soc_pct,charge_kw,v2h_saving_sek")
+          .select("id,logged_at,decision,reason,spot_price_sek,soc_pct,charge_kw,v2h_saving_sek,house_consumption_kw")
           .eq("simulation_id", simulationId)
           .gte("logged_at", fromIso).lte("logged_at", toIso)
           .order("logged_at", { ascending: true }),
