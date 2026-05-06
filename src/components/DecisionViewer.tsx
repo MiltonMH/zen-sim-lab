@@ -29,6 +29,7 @@ interface Log {
   soc_pct: number | null;
   charge_kw: number | null;
   v2h_saving_sek: number | null;
+  house_consumption_kw: number | null;
 }
 interface Evt {
   id: string;
@@ -89,7 +90,7 @@ export default function DecisionViewer({
       const toIso = `${periodTo}T23:59:59+00:00`;
       const [{ data: l }, { data: e }] = await Promise.all([
         supabase.from("optimization_logs")
-          .select("id,logged_at,decision,reason,spot_price_sek,soc_pct,charge_kw,v2h_saving_sek")
+          .select("id,logged_at,decision,reason,spot_price_sek,soc_pct,charge_kw,v2h_saving_sek,house_consumption_kw")
           .eq("simulation_id", simulationId)
           .gte("logged_at", fromIso).lte("logged_at", toIso)
           .order("logged_at", { ascending: true }),
@@ -257,19 +258,46 @@ function DecisionChart({
     const isV2h = l.decision === "v2h";
     const isV2g = l.decision === "v2g";
     const kw = Number(l.charge_kw ?? 0);
+    const reason = l.reason ?? "";
+    const isAway = /cable_disconnected|morning_guarantee/.test(reason);
+    const price = Number(l.spot_price_sek ?? 0);
+    let pauseTone: "away" | "expensive" | "waiting" | null = null;
+    if (l.decision === "pause") {
+      pauseTone = isAway ? "away" : price > priceThreshold ? "expensive" : "waiting";
+    }
     return {
       hour: format(parseISO(l.logged_at), "HH:mm"),
       iso: l.logged_at,
-      price: Number(l.spot_price_sek ?? 0),
+      price,
       soc: l.soc_pct != null ? Number(l.soc_pct) : null,
+      houseKw: l.house_consumption_kw != null ? Number(l.house_consumption_kw) : null,
       charge: isCharge ? Math.max(0, kw) : 0,
       v2h: isV2h ? -Math.abs(kw || 7) : 0,
       v2g: isV2g ? -Math.abs(kw || 7) : 0,
       decision: l.decision,
-      reason: l.reason ?? "",
+      reason,
       isEmergency: l.decision === "emergency_charge",
+      isAway,
+      pauseTone,
     };
-  }), [logs]);
+  }), [logs, priceThreshold]);
+
+  // Contiguous "away" ranges for ReferenceArea overlay
+  const awayRanges = useMemo(() => {
+    const ranges: { x1: string; x2: string }[] = [];
+    let start: string | null = null;
+    for (let i = 0; i < data.length; i++) {
+      const d = data[i];
+      if (d.isAway && start === null) start = d.hour;
+      const ending = !d.isAway || i === data.length - 1;
+      if (ending && start !== null) {
+        const endHour = d.isAway ? d.hour : data[i - 1].hour;
+        ranges.push({ x1: start, x2: endHour });
+        start = null;
+      }
+    }
+    return ranges;
+  }, [data]);
 
   if (data.length === 0) {
     return <Card className="rounded-2xl p-12 text-center text-muted-foreground">Inga datapunkter denna dag.</Card>;
@@ -313,12 +341,40 @@ function DecisionChart({
               tick={{ fontSize: 10 }}
               label={{ value: "SoC %", angle: 90, position: "insideRight", style: { fontSize: 10, fill: COLORS.soc } }}
             />
+            <YAxis yAxisId="house" hide domain={[0, "dataMax + 2"]} />
 
             {/* Price zones */}
             <ReferenceArea yAxisId="price" y1={0} y2={DAY_THRESHOLDS[0]} fill={COLORS.green} fillOpacity={0.08} />
             <ReferenceArea yAxisId="price" y1={DAY_THRESHOLDS[0]} y2={DAY_THRESHOLDS[1]} fill={COLORS.yellow} fillOpacity={0.08} />
             <ReferenceArea yAxisId="price" y1={DAY_THRESHOLDS[1]} y2={DAY_THRESHOLDS[2]} fill={COLORS.orange} fillOpacity={0.10} />
             <ReferenceArea yAxisId="price" y1={DAY_THRESHOLDS[2]} y2={maxPrice * 1.5} fill={COLORS.red} fillOpacity={0.10} />
+
+            {/* Bilen borta — gråa zoner */}
+            {awayRanges.map((r, i) => (
+              <ReferenceArea
+                key={`away-${i}`}
+                yAxisId="price"
+                x1={r.x1}
+                x2={r.x2}
+                fill="hsl(220, 9%, 85%)"
+                fillOpacity={0.4}
+                label={i === 0 ? { value: "Bilen borta", fontSize: 10, fill: "hsl(220, 9%, 35%)", position: "insideTop" } : undefined}
+              />
+            ))}
+
+            {/* Husförbrukning */}
+            <Area
+              yAxisId="house"
+              type="monotone"
+              dataKey="houseKw"
+              name="Husförbrukning kW"
+              fill="hsl(36, 83%, 70%)"
+              fillOpacity={0.3}
+              stroke="hsl(36, 83%, 50%)"
+              strokeWidth={1.2}
+              isAnimationActive={false}
+              connectNulls
+            />
 
             {/* Threshold lines */}
             <ReferenceLine yAxisId="price" y={priceThreshold} stroke={COLORS.red} strokeDasharray="5 4" strokeWidth={1.2}
@@ -373,11 +429,26 @@ function DecisionChart({
             <Tooltip content={<HourTooltip showActivityOnly />} />
             <Bar dataKey="charge" name="Laddning kW" radius={[3, 3, 0, 0]}>
               {data.map((d, i) => (
-                <Cell key={i} fill={d.isEmergency ? COLORS.emergency : COLORS.charge} />
+                <Cell key={i} fill={d.isEmergency ? COLORS.emergency : "hsl(172, 66%, 34%)"} />
               ))}
             </Bar>
-            <Bar dataKey="v2h" name="V2H kW" fill={COLORS.v2h} radius={[0, 0, 3, 3]} />
+            <Bar dataKey="v2h" name="V2H kW" radius={[0, 0, 3, 3]}>
+              {data.map((d, i) => (
+                <Cell key={i} fill="hsl(239, 84%, 67%)" />
+              ))}
+            </Bar>
             <Bar dataKey="v2g" name="V2G kW" fill={COLORS.v2g} radius={[0, 0, 3, 3]} />
+            {/* Pause indicators (small bar at 1 kW for tone) */}
+            <Bar dataKey={(d: any) => d.pauseTone ? 1 : 0} name="Paus" radius={[3, 3, 0, 0]}>
+              {data.map((d, i) => {
+                const fill =
+                  d.pauseTone === "away" ? "hsl(220, 9%, 75%)" :
+                  d.pauseTone === "expensive" ? "hsl(13, 68%, 63%)" :
+                  d.pauseTone === "waiting" ? "hsl(220, 9%, 88%)" :
+                  "transparent";
+                return <Cell key={i} fill={fill} />;
+              })}
+            </Bar>
           </ComposedChart>
         </ResponsiveContainer>
       </div>
@@ -571,18 +642,29 @@ function Field({ label, value, accent, bold }: { label: string; value: string; a
 function prettyReason(r: string | null): string {
   if (!r) return "—";
   const map: Record<string, string> = {
+    night_charge_planned: "Nattladdning — billigaste timmen",
+    v2h_planned: "V2H — dyrare än batterikostnaden",
+    evening_peak_v2h: "Kvällstopp — V2H aktiverad",
+    morning_v2h: "Morgon V2H — lönsamt",
+    cable_disconnected: "Bilen borta",
+    morning_guarantee: "Morgongaranti — laddar",
+    v2h_floor_reached: "Batterigolv nått — stoppar V2H",
+    no_action: "Inväntar bättre pris",
     too_cheap_to_ignore: "Pris extremt lågt — ladda alltid",
     best_combined_score: "Bästa kombinerade poäng",
     soc_above_95_protect: "Batteri nästan fullt",
     soc_below_20_emergency: "Kritisk SoC — nödladdning",
-    cable_disconnected: "Bilen ej hemma",
     minimum_dagsladdning: "Minimum för dagens körning",
     house_peak_consumption: "Hög hushållsförbrukning",
     lower_score: "Lägre prisscore",
     peak_price_v2h: "Topptimme — V2H aktiv",
-    no_action: "Ingen åtgärd",
   };
-  if (map[r]) return map[r];
-  if (r.startsWith("spot_above_")) return `Pris över tröskel`;
+  // Match prefix like "night_charge_planned: 0.42 SEK/kWh"
+  const key = r.split(":")[0].trim();
+  if (map[key]) return map[key];
+  for (const k of Object.keys(map)) {
+    if (r.includes(k)) return map[k];
+  }
+  if (r.startsWith("spot_above_")) return "Pris över tröskel";
   return r.replace(/_/g, " ");
 }
