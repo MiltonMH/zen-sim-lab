@@ -258,19 +258,46 @@ function DecisionChart({
     const isV2h = l.decision === "v2h";
     const isV2g = l.decision === "v2g";
     const kw = Number(l.charge_kw ?? 0);
+    const reason = l.reason ?? "";
+    const isAway = /cable_disconnected|morning_guarantee/.test(reason);
+    const price = Number(l.spot_price_sek ?? 0);
+    let pauseTone: "away" | "expensive" | "waiting" | null = null;
+    if (l.decision === "pause") {
+      pauseTone = isAway ? "away" : price > priceThreshold ? "expensive" : "waiting";
+    }
     return {
       hour: format(parseISO(l.logged_at), "HH:mm"),
       iso: l.logged_at,
-      price: Number(l.spot_price_sek ?? 0),
+      price,
       soc: l.soc_pct != null ? Number(l.soc_pct) : null,
+      houseKw: l.house_consumption_kw != null ? Number(l.house_consumption_kw) : null,
       charge: isCharge ? Math.max(0, kw) : 0,
       v2h: isV2h ? -Math.abs(kw || 7) : 0,
       v2g: isV2g ? -Math.abs(kw || 7) : 0,
       decision: l.decision,
-      reason: l.reason ?? "",
+      reason,
       isEmergency: l.decision === "emergency_charge",
+      isAway,
+      pauseTone,
     };
-  }), [logs]);
+  }), [logs, priceThreshold]);
+
+  // Contiguous "away" ranges for ReferenceArea overlay
+  const awayRanges = useMemo(() => {
+    const ranges: { x1: string; x2: string }[] = [];
+    let start: string | null = null;
+    for (let i = 0; i < data.length; i++) {
+      const d = data[i];
+      if (d.isAway && start === null) start = d.hour;
+      const ending = !d.isAway || i === data.length - 1;
+      if (ending && start !== null) {
+        const endHour = d.isAway ? d.hour : data[i - 1].hour;
+        ranges.push({ x1: start, x2: endHour });
+        start = null;
+      }
+    }
+    return ranges;
+  }, [data]);
 
   if (data.length === 0) {
     return <Card className="rounded-2xl p-12 text-center text-muted-foreground">Inga datapunkter denna dag.</Card>;
