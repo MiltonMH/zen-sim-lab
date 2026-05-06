@@ -29,6 +29,7 @@ interface Log {
   soc_pct: number | null;
   charge_kw: number | null;
   v2h_saving_sek: number | null;
+  house_consumption_kw: number | null;
 }
 interface Evt {
   id: string;
