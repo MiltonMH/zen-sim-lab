@@ -92,9 +92,9 @@ function ChallengeCard({ title, value, desc, tone }: { title: string; value: str
   );
 }
 
-function HourBar({ data, leaveHour, returnHour }: { data: HourRow[]; leaveHour?: number; returnHour?: number }) {
-  const v2hStart = data.find((d) => d.v2h_pct >= 50)?.hour_of_day;
-  const chargeStart = data.find((d) => d.charging_pct >= 50)?.hour_of_day;
+function HourBar({ data, leaveHour = 8, returnHour = 17 }: { data: HourRow[]; leaveHour?: number; returnHour?: number }) {
+  const v2hStart = data.find((d) => d.v2h_pct >= 50)?.hour_of_day ?? 17;
+  const chargeStart = data.find((d) => d.charging_pct >= 50)?.hour_of_day ?? 1;
   return (
     <div className="h-[340px] w-full">
       <ResponsiveContainer>
@@ -318,7 +318,7 @@ export default function MLAnalys() {
         <KpiCard
           label="V2H timmar/dag"
           value={kpis?.avg_v2h_hours_per_day != null ? `${kpis.avg_v2h_hours_per_day} h` : "—"}
-          tone={toneClass(kpis?.avg_v2h_hours_per_day, 8, 4)}
+          tone={toneClass(kpis?.avg_v2h_hours_per_day, 4, 2)}
         />
         <KpiCard label="Kabel inkopplad" value={minToHHMM(kpis?.avg_cable_in_min)} />
         <KpiCard label="Kabel urkopplad" value={minToHHMM(kpis?.avg_cable_out_min)} />
