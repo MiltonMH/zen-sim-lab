@@ -332,7 +332,7 @@ export default function Overview() {
             <>
               <MiniStat icon={Coins} label="Totalt sparat" value={`${nf(totals.total_saved_sek)} SEK`} color={GREEN} sub="alla simuleringar" />
               <MiniStat icon={Battery} label="V2H-besparing" value={`${nf(totals.total_v2h_saving_sek)} SEK`} color={BLUE} sub={`${nf(totals.total_v2h_kwh)} kWh ut`} />
-              <MiniStat icon={Gauge} label="Effekttariff" value={`${nf(totals.peak_demand_saving_sek)} SEK`} color={PURPLE} sub={`${nf(totals.peaks_avoided_count)} toppar undvikna`} />
+              <MiniStat icon={Gauge} label="Effekttariff (snitt/sim)" value={`${nf(totals.avg_peak_demand_per_sim)} SEK`} color={PURPLE} sub={`${nf(totals.peaks_avoided_count)} toppar undvikna totalt`} />
               <MiniStat icon={Activity} label="Loggade dagar" value={nf(kpis?.total_sims)} color={ORANGE} sub="datapunkter" />
               <MiniStat icon={ShieldCheck} label="Morgongaranti" value={`${nf(kpis?.morning_guarantee_pct, 1)}%`} color={GREEN} sub="bilen full vid avresa" />
             </>
