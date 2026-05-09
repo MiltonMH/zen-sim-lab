@@ -61,6 +61,10 @@ type SimTotals = {
   peak_demand_saving_sek: number;
   peaks_avoided_count: number;
   sims_completed: number;
+  avg_sek_per_day: number | null;
+  est_annual_sek: number | null;
+  avg_peak_demand_per_sim: number | null;
+  perHouseholdDaily: Record<string, number>;
 };
 
 type HourDist = {
