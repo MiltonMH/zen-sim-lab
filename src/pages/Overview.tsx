@@ -178,22 +178,26 @@ export default function Overview() {
       const rows = (t.data as any[]) ?? [];
       const dayMs = 86400000;
       const perSimDaily: number[] = [];
-      const perSimMonthly: number[] = [];
+      const monthlyTotals: number[] = [];
       const hhAccum: Record<string, { sum: number; n: number }> = {};
       for (const r of rows) {
         const saved = Number(r.total_saved_sek ?? 0);
         if (!(saved > 0) || !r.period_from || !r.period_to) continue;
         const days = Math.max(1, Math.round((+new Date(r.period_to) - +new Date(r.period_from)) / dayMs) + 1);
+        // Only count monthly-length sims for daily/annual averages — yearly sims often have partial data
+        const isMonthly = days >= 26 && days <= 35;
         const perDay = saved / days;
-        perSimDaily.push(perDay);
-        perSimMonthly.push(perDay * 30.4375);
-        if (r.household_id) {
-          const h = (hhAccum[r.household_id] ??= { sum: 0, n: 0 });
-          h.sum += perDay; h.n += 1;
+        if (isMonthly) {
+          perSimDaily.push(perDay);
+          monthlyTotals.push(saved);
+          if (r.household_id) {
+            const h = (hhAccum[r.household_id] ??= { sum: 0, n: 0 });
+            h.sum += perDay; h.n += 1;
+          }
         }
       }
       const avgDay = perSimDaily.length ? perSimDaily.reduce((a,b)=>a+b,0)/perSimDaily.length : null;
-      const avgMonthly = perSimMonthly.length ? perSimMonthly.reduce((a,b)=>a+b,0)/perSimMonthly.length : null;
+      const avgMonthly = monthlyTotals.length ? monthlyTotals.reduce((a,b)=>a+b,0)/monthlyTotals.length : null;
       const perHouseholdDaily: Record<string, number> = {};
       for (const [id, v] of Object.entries(hhAccum)) perHouseholdDaily[id] = v.sum / v.n;
       const peakSum = rows.reduce((a, r) => a + Number(r.peak_demand_saving_sek ?? 0), 0);
