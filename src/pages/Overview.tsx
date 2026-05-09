@@ -308,7 +308,7 @@ export default function Overview() {
         <KpiCard
           loading={loading} icon={Coins} label="Snitt besparing / dag"
           value={nf(avgPerDay)} unit="SEK"
-          sub={avgPerDay != null ? `≈ ${nf(avgPerDay * 365)} SEK / år per hushåll` : "per hushåll"}
+          sub={estAnnual != null ? `≈ ${nf(estAnnual)} SEK / år per simulering` : "per simulering"}
           color={GREEN} bg={GREEN_SOFT}
         />
         <KpiCard
