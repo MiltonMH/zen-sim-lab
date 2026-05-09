@@ -61,6 +61,10 @@ type SimTotals = {
   peak_demand_saving_sek: number;
   peaks_avoided_count: number;
   sims_completed: number;
+  avg_sek_per_day: number | null;
+  est_annual_sek: number | null;
+  avg_peak_demand_per_sim: number | null;
+  perHouseholdDaily: Record<string, number>;
 };
 
 type HourDist = {
@@ -163,7 +167,7 @@ export default function Overview() {
         supabase.rpc("ml_challenges"),
         supabase
           .from("simulation_runs")
-          .select("total_saved_sek,total_v2h_saving_sek,total_v2h_kwh,peak_demand_saving_sek,peaks_avoided_count")
+          .select("household_id,total_saved_sek,total_v2h_saving_sek,total_v2h_kwh,peak_demand_saving_sek,peaks_avoided_count,period_from,period_to")
           .eq("status", "completed"),
         supabase.rpc("ml_hourly_distribution"),
         supabase.rpc("ml_best_v2h_hour"),
@@ -172,13 +176,38 @@ export default function Overview() {
       setStats(((s.data as HhStat[]) ?? []).filter((x) => x.v2h_hours_per_day != null));
       setChallenges((c.data as Challenges) ?? null);
       const rows = (t.data as any[]) ?? [];
+      const dayMs = 86400000;
+      const perSimDaily: number[] = [];
+      const perSimMonthly: number[] = [];
+      const hhAccum: Record<string, { sum: number; n: number }> = {};
+      for (const r of rows) {
+        const saved = Number(r.total_saved_sek ?? 0);
+        if (!(saved > 0) || !r.period_from || !r.period_to) continue;
+        const days = Math.max(1, Math.round((+new Date(r.period_to) - +new Date(r.period_from)) / dayMs) + 1);
+        const perDay = saved / days;
+        perSimDaily.push(perDay);
+        perSimMonthly.push(perDay * 30.4375);
+        if (r.household_id) {
+          const h = (hhAccum[r.household_id] ??= { sum: 0, n: 0 });
+          h.sum += perDay; h.n += 1;
+        }
+      }
+      const avgDay = perSimDaily.length ? perSimDaily.reduce((a,b)=>a+b,0)/perSimDaily.length : null;
+      const avgMonthly = perSimMonthly.length ? perSimMonthly.reduce((a,b)=>a+b,0)/perSimMonthly.length : null;
+      const perHouseholdDaily: Record<string, number> = {};
+      for (const [id, v] of Object.entries(hhAccum)) perHouseholdDaily[id] = v.sum / v.n;
+      const peakSum = rows.reduce((a, r) => a + Number(r.peak_demand_saving_sek ?? 0), 0);
       setTotals({
         total_saved_sek: rows.reduce((a, r) => a + Number(r.total_saved_sek ?? 0), 0),
         total_v2h_saving_sek: rows.reduce((a, r) => a + Number(r.total_v2h_saving_sek ?? 0), 0),
         total_v2h_kwh: rows.reduce((a, r) => a + Number(r.total_v2h_kwh ?? 0), 0),
-        peak_demand_saving_sek: rows.reduce((a, r) => a + Number(r.peak_demand_saving_sek ?? 0), 0),
+        peak_demand_saving_sek: peakSum,
         peaks_avoided_count: rows.reduce((a, r) => a + Number(r.peaks_avoided_count ?? 0), 0),
         sims_completed: rows.length,
+        avg_sek_per_day: avgDay,
+        est_annual_sek: avgMonthly != null ? avgMonthly * 12 : null,
+        avg_peak_demand_per_sim: rows.length ? peakSum / rows.length : null,
+        perHouseholdDaily,
       });
       setHourly((h.data as HourDist[]) ?? []);
       const br = (b.data as any[]) ?? [];
@@ -187,35 +216,31 @@ export default function Overview() {
     })();
   }, []);
 
-  const ranking = useMemo(
-    () =>
-      [...stats]
-        .sort((a, b) => (b.v2h_hours_per_day ?? 0) - (a.v2h_hours_per_day ?? 0))
-        .map((s) => ({
-          name: shortName(s.name),
-          v2h: Number(s.v2h_hours_per_day ?? 0),
-          sek: Number(s.avg_sek_per_day ?? 0),
-        })),
-    [stats]
-  );
+  const ranking = useMemo(() => {
+    const map = totals?.perHouseholdDaily ?? {};
+    return [...stats]
+      .sort((a, b) => (b.v2h_hours_per_day ?? 0) - (a.v2h_hours_per_day ?? 0))
+      .map((s) => ({
+        name: shortName(s.name),
+        v2h: Number(s.v2h_hours_per_day ?? 0),
+        sek: Number(map[s.household_id] ?? 0),
+      }));
+  }, [stats, totals]);
 
-  const sekRanking = useMemo(
-    () =>
-      [...stats]
-        .sort((a, b) => (b.avg_sek_per_day ?? 0) - (a.avg_sek_per_day ?? 0))
-        .map((s) => ({ name: shortName(s.name), sek: Number(s.avg_sek_per_day ?? 0) })),
-    [stats]
-  );
+  const sekRanking = useMemo(() => {
+    const map = totals?.perHouseholdDaily ?? {};
+    return [...stats]
+      .map((s) => ({ name: shortName(s.name), sek: Number(map[s.household_id] ?? 0) }))
+      .filter((x) => x.sek > 0)
+      .sort((a, b) => b.sek - a.sek);
+  }, [stats, totals]);
 
-  const avgPerDay = useMemo(() => {
-    if (!stats.length) return null;
-    const arr = stats.map((s) => Number(s.avg_sek_per_day ?? 0)).filter(Number.isFinite);
-    return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
-  }, [stats]);
+  const avgPerDay = totals?.avg_sek_per_day ?? null;
+  const estAnnual = totals?.est_annual_sek ?? null;
 
   const totalDaily = useMemo(
-    () => stats.reduce((sum, s) => sum + Number(s.avg_sek_per_day ?? 0), 0),
-    [stats]
+    () => Object.values(totals?.perHouseholdDaily ?? {}).reduce((a, b) => a + b, 0),
+    [totals]
   );
 
   const distribution = useMemo(() => {
@@ -234,7 +259,18 @@ export default function Overview() {
   }, [stats]);
 
   const v2hAvg = kpis?.avg_v2h_hours_per_day ?? null;
-  const top = ranking[0];
+  const top = useMemo(() => {
+    const map = totals?.perHouseholdDaily ?? {};
+    let best: { name: string; v2h: number; sek: number } | null = null;
+    for (const s of stats) {
+      const sek = Number(map[s.household_id] ?? 0);
+      if (sek <= 0) continue;
+      if (!best || sek > best.sek) {
+        best = { name: shortName(s.name), v2h: Number(s.v2h_hours_per_day ?? 0), sek };
+      }
+    }
+    return best;
+  }, [stats, totals]);
 
   return (
     <div className="space-y-6 sm:space-y-8">
@@ -272,7 +308,7 @@ export default function Overview() {
         <KpiCard
           loading={loading} icon={Coins} label="Snitt besparing / dag"
           value={nf(avgPerDay)} unit="SEK"
-          sub={avgPerDay != null ? `≈ ${nf(avgPerDay * 365)} SEK / år per hushåll` : "per hushåll"}
+          sub={estAnnual != null ? `≈ ${nf(estAnnual)} SEK / år per simulering` : "per simulering"}
           color={GREEN} bg={GREEN_SOFT}
         />
         <KpiCard
@@ -296,7 +332,7 @@ export default function Overview() {
             <>
               <MiniStat icon={Coins} label="Totalt sparat" value={`${nf(totals.total_saved_sek)} SEK`} color={GREEN} sub="alla simuleringar" />
               <MiniStat icon={Battery} label="V2H-besparing" value={`${nf(totals.total_v2h_saving_sek)} SEK`} color={BLUE} sub={`${nf(totals.total_v2h_kwh)} kWh ut`} />
-              <MiniStat icon={Gauge} label="Effekttariff" value={`${nf(totals.peak_demand_saving_sek)} SEK`} color={PURPLE} sub={`${nf(totals.peaks_avoided_count)} toppar undvikna`} />
+              <MiniStat icon={Gauge} label="Effekttariff (snitt/sim)" value={`${nf(totals.avg_peak_demand_per_sim)} SEK`} color={PURPLE} sub={`${nf(totals.peaks_avoided_count)} toppar undvikna totalt`} />
               <MiniStat icon={Activity} label="Loggade dagar" value={nf(kpis?.total_sims)} color={ORANGE} sub="datapunkter" />
               <MiniStat icon={ShieldCheck} label="Morgongaranti" value={`${nf(kpis?.morning_guarantee_pct, 1)}%`} color={GREEN} sub="bilen full vid avresa" />
             </>
