@@ -228,23 +228,20 @@ export default function Overview() {
     [stats]
   );
 
-  const sekRanking = useMemo(
-    () =>
-      [...stats]
-        .sort((a, b) => (b.avg_sek_per_day ?? 0) - (a.avg_sek_per_day ?? 0))
-        .map((s) => ({ name: shortName(s.name), sek: Number(s.avg_sek_per_day ?? 0) })),
-    [stats]
-  );
+  const sekRanking = useMemo(() => {
+    const map = totals?.perHouseholdDaily ?? {};
+    return [...stats]
+      .map((s) => ({ name: shortName(s.name), sek: Number(map[s.household_id] ?? 0) }))
+      .filter((x) => x.sek > 0)
+      .sort((a, b) => b.sek - a.sek);
+  }, [stats, totals]);
 
-  const avgPerDay = useMemo(() => {
-    if (!stats.length) return null;
-    const arr = stats.map((s) => Number(s.avg_sek_per_day ?? 0)).filter(Number.isFinite);
-    return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
-  }, [stats]);
+  const avgPerDay = totals?.avg_sek_per_day ?? null;
+  const estAnnual = totals?.est_annual_sek ?? null;
 
   const totalDaily = useMemo(
-    () => stats.reduce((sum, s) => sum + Number(s.avg_sek_per_day ?? 0), 0),
-    [stats]
+    () => Object.values(totals?.perHouseholdDaily ?? {}).reduce((a, b) => a + b, 0),
+    [totals]
   );
 
   const distribution = useMemo(() => {
@@ -263,7 +260,18 @@ export default function Overview() {
   }, [stats]);
 
   const v2hAvg = kpis?.avg_v2h_hours_per_day ?? null;
-  const top = ranking[0];
+  const top = useMemo(() => {
+    const map = totals?.perHouseholdDaily ?? {};
+    let best: { name: string; v2h: number; sek: number } | null = null;
+    for (const s of stats) {
+      const sek = Number(map[s.household_id] ?? 0);
+      if (sek <= 0) continue;
+      if (!best || sek > best.sek) {
+        best = { name: shortName(s.name), v2h: Number(s.v2h_hours_per_day ?? 0), sek };
+      }
+    }
+    return best;
+  }, [stats, totals]);
 
   return (
     <div className="space-y-6 sm:space-y-8">
