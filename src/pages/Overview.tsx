@@ -216,17 +216,16 @@ export default function Overview() {
     })();
   }, []);
 
-  const ranking = useMemo(
-    () =>
-      [...stats]
-        .sort((a, b) => (b.v2h_hours_per_day ?? 0) - (a.v2h_hours_per_day ?? 0))
-        .map((s) => ({
-          name: shortName(s.name),
-          v2h: Number(s.v2h_hours_per_day ?? 0),
-          sek: Number(s.avg_sek_per_day ?? 0),
-        })),
-    [stats]
-  );
+  const ranking = useMemo(() => {
+    const map = totals?.perHouseholdDaily ?? {};
+    return [...stats]
+      .sort((a, b) => (b.v2h_hours_per_day ?? 0) - (a.v2h_hours_per_day ?? 0))
+      .map((s) => ({
+        name: shortName(s.name),
+        v2h: Number(s.v2h_hours_per_day ?? 0),
+        sek: Number(map[s.household_id] ?? 0),
+      }));
+  }, [stats, totals]);
 
   const sekRanking = useMemo(() => {
     const map = totals?.perHouseholdDaily ?? {};
