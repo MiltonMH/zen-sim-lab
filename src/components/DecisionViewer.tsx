@@ -443,7 +443,7 @@ function DecisionChart({
             <Bar dataKey={(d: any) => d.pauseTone ? 1 : 0} name="Paus" radius={[3, 3, 0, 0]}>
               {data.map((d, i) => {
                 const fill =
-                  d.pauseTone === "away" ? "hsl(220, 9%, 75%)" :
+                  d.pauseTone === "away" ? "hsl(220, 9%, 70%)" :
                   d.pauseTone === "expensive" ? "hsl(13, 68%, 63%)" :
                   d.pauseTone === "waiting" ? "hsl(220, 9%, 88%)" :
                   "transparent";
