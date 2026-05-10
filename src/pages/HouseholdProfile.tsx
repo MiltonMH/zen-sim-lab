@@ -345,6 +345,7 @@ export default function HouseholdProfile({
       <header className="space-y-2">
         <div className="flex items-center gap-3 flex-wrap">
           <h1 className="text-3xl font-semibold tracking-tight">{hh.name}</h1>
+          <Badge className={`rounded-full ${routine.badgeClass}`}>{routine.label}</Badge>
           {ev?.ccs2_port !== false && (
             <Badge className="rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-transparent">CCS2</Badge>
           )}
