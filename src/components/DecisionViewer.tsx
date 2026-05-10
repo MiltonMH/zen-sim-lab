@@ -259,11 +259,12 @@ function DecisionChart({
     const isV2g = l.decision === "v2g";
     const kw = Number(l.charge_kw ?? 0);
     const reason = l.reason ?? "";
-    const isAway = /cable_disconnected|morning_guarantee/.test(reason);
+    const isAway = /cable_disconnected|away/i.test(reason);
+    const isWaiting = /no_action|similar|waiting/i.test(reason);
     const price = Number(l.spot_price_sek ?? 0);
     let pauseTone: "away" | "expensive" | "waiting" | null = null;
     if (l.decision === "pause") {
-      pauseTone = isAway ? "away" : price > priceThreshold ? "expensive" : "waiting";
+      pauseTone = isAway ? "away" : isWaiting ? "waiting" : "expensive";
     }
     return {
       hour: format(parseISO(l.logged_at), "HH:mm"),
