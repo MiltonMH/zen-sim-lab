@@ -175,6 +175,15 @@ export default function Hushall() {
     }
     setSaving(true);
     const payload: any = { ...editing };
+    // Synka tider från rutintyp om inte avancerat läge är på
+    const r = resolveRoutine(payload.routine_type);
+    payload.routine_type = r.key;
+    if (!advancedTimes) {
+      payload.wake_time = r.wake_time;
+      payload.leave_time = r.leave_time;
+      payload.return_time = r.return_time;
+      payload.sleep_time = r.sleep_time;
+    }
     // sync battery_kwh from selected EV
     if (payload.ev_model_id) {
       const ev = evModels.find(e => e.id === payload.ev_model_id);
