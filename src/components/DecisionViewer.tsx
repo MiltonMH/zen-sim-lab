@@ -368,11 +368,11 @@ function DecisionChart({
               yAxisId="house"
               type="monotone"
               dataKey="houseKw"
-              name="Husförbrukning kW"
+              name="Husförbrukning"
               fill="hsl(36, 83%, 70%)"
-              fillOpacity={0.3}
+              fillOpacity={0.2}
               stroke="hsl(36, 83%, 50%)"
-              strokeWidth={1.2}
+              strokeWidth={1.5}
               isAnimationActive={false}
               connectNulls
             />
