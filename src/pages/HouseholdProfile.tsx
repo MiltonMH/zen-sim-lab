@@ -366,6 +366,15 @@ export default function HouseholdProfile({
         )}
       </header>
 
+      {/* Daglig rutin — visuell tidslinje */}
+      <Card className="rounded-2xl p-5 space-y-3">
+        <div className="flex items-baseline justify-between gap-3 flex-wrap">
+          <h2 className="text-sm font-semibold">Daglig rutin</h2>
+          <p className="text-xs text-muted-foreground">{routine.description}</p>
+        </div>
+        <RoutineTimeline routine={routine} />
+      </Card>
+
       {/* 4 stat cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard icon={<Wallet className="h-4 w-4" />} label="Total sparat" value={fmtSek(stats.total)} accent="emerald" />
