@@ -320,8 +320,9 @@ export default function HouseholdProfile({
   const secondaryInfo = [
     hh.heating_type ? cap(hh.heating_type) : null,
     ev ? `${ev.brand} ${ev.model}` : hh.car_model,
-    hh.routine_type ? cap(hh.routine_type) : hh.commuter_type ? cap(hh.commuter_type) : null,
+    hh.commuter_type ? cap(hh.commuter_type) : null,
   ].filter(Boolean);
+  const routine = resolveRoutine(hh.routine_type);
 
   return (
     <div className="space-y-6">
