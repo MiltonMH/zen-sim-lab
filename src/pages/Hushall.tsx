@@ -154,10 +154,12 @@ export default function Hushall() {
 
   const openCreate = () => {
     setEditing({ ...empty });
+    setAdvancedTimes(false);
     setDialogOpen(true);
   };
   const openEdit = (h: Household) => {
     setEditing({ ...h });
+    setAdvancedTimes(false);
     setDialogOpen(true);
   };
 
