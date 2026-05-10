@@ -15,6 +15,9 @@ import { Slider } from "@/components/ui/slider";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { householdTypeMeta, type HouseholdType } from "@/lib/householdTypes";
+import { ROUTINES, resolveRoutine } from "@/lib/routineTypes";
+import { RoutineTimeline } from "@/components/RoutineTimeline";
+import { Switch } from "@/components/ui/switch";
 
 interface EvModel {
   id: string;
@@ -91,7 +94,7 @@ const HOUSE_TYPES = ["villa", "radhus", "lagenhet", "fritidshus"];
 const PRICE_AREAS = ["SE1", "SE2", "SE3", "SE4"];
 const HEATING = ["varmepump", "fjarrvarme", "direktel", "ved", "vattenburet_el"];
 const INSULATION = ["bra", "medium", "daligt"];
-const ROUTINE = ["pendlare", "hemma", "skiftarbete", "deltid"];
+const ROUTINE = ROUTINES.map(r => r.key);
 const FUSE_OPTIONS = [16, 20, 25, 35, 50, 63];
 
 // Nätbolag per prisområde — används för att filtrera dropdown
@@ -120,6 +123,7 @@ export default function Hushall() {
   const [confirmDelete, setConfirmDelete] = useState<Household | null>(null);
   const [saving, setSaving] = useState(false);
   const [openFolder, setOpenFolder] = useState<HouseholdType | null>(null);
+  const [advancedTimes, setAdvancedTimes] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -150,10 +154,12 @@ export default function Hushall() {
 
   const openCreate = () => {
     setEditing({ ...empty });
+    setAdvancedTimes(false);
     setDialogOpen(true);
   };
   const openEdit = (h: Household) => {
     setEditing({ ...h });
+    setAdvancedTimes(false);
     setDialogOpen(true);
   };
 
@@ -169,6 +175,15 @@ export default function Hushall() {
     }
     setSaving(true);
     const payload: any = { ...editing };
+    // Synka tider från rutintyp om inte avancerat läge är på
+    const r = resolveRoutine(payload.routine_type);
+    payload.routine_type = r.key;
+    if (!advancedTimes) {
+      payload.wake_time = r.wake_time;
+      payload.leave_time = r.leave_time;
+      payload.return_time = r.return_time;
+      payload.sleep_time = r.sleep_time;
+    }
     // sync battery_kwh from selected EV
     if (payload.ev_model_id) {
       const ev = evModels.find(e => e.id === payload.ev_model_id);
@@ -450,14 +465,55 @@ export default function Hushall() {
                 <Label>Årsförbrukning (kWh)</Label>
                 <Input type="number" value={editing.annual_kwh ?? ""} onChange={e => set("annual_kwh", Number(e.target.value) || null)} />
               </div>
-              <div>
-                <Label>Rutin</Label>
-                <Select value={editing.routine_type ?? "pendlare"} onValueChange={v => set("routine_type", v)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {ROUTINE.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+              <div className="col-span-2">
+                {(() => {
+                  const r = resolveRoutine(editing.routine_type);
+                  return (
+                    <>
+                      <Label>Rutintyp <span className="text-destructive">*</span></Label>
+                      <Select
+                        value={r.key}
+                        onValueChange={v => {
+                          const def = resolveRoutine(v);
+                          setEditing(prev => ({
+                            ...(prev ?? {}),
+                            routine_type: def.key,
+                            wake_time: def.wake_time,
+                            leave_time: def.leave_time,
+                            return_time: def.return_time,
+                            sleep_time: def.sleep_time,
+                          }));
+                        }}
+                      >
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {ROUTINES.map(opt => (
+                            <SelectItem key={opt.key} value={opt.key}>
+                              <div className="flex flex-col">
+                                <span>{opt.label}</span>
+                                <span className="text-[11px] text-muted-foreground">{opt.description}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-[11px] text-muted-foreground mt-1.5">{r.description}</p>
+                      <div className="mt-3">
+                        <RoutineTimeline routine={r} />
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+
+              <div className="col-span-2">
+                <div className="flex items-center justify-between rounded-md border bg-muted/30 px-3 py-2">
+                  <div>
+                    <Label className="cursor-pointer">Anpassa tider</Label>
+                    <p className="text-[11px] text-muted-foreground">Visa manuella tidsfält för avancerade användare</p>
+                  </div>
+                  <Switch checked={advancedTimes} onCheckedChange={setAdvancedTimes} />
+                </div>
               </div>
 
               <div>
@@ -469,22 +525,26 @@ export default function Hushall() {
                 <Input type="number" value={editing.children ?? 0} onChange={e => set("children", Number(e.target.value) || 0)} />
               </div>
 
-              <div>
-                <Label>Vakna kl</Label>
-                <Input type="number" min={0} max={23} value={editing.wake_time ?? 6} onChange={e => set("wake_time", Number(e.target.value))} />
-              </div>
-              <div>
-                <Label>Lämnar hem kl</Label>
-                <Input type="number" min={0} max={23} value={editing.leave_time ?? 7} onChange={e => set("leave_time", Number(e.target.value))} />
-              </div>
-              <div>
-                <Label>Hem kl</Label>
-                <Input type="number" min={0} max={23} value={editing.return_time ?? 17} onChange={e => set("return_time", Number(e.target.value))} />
-              </div>
-              <div>
-                <Label>Sover kl</Label>
-                <Input type="number" min={0} max={23} value={editing.sleep_time ?? 23} onChange={e => set("sleep_time", Number(e.target.value))} />
-              </div>
+              {advancedTimes && (
+                <>
+                  <div>
+                    <Label>Vakna kl</Label>
+                    <Input type="number" min={0} max={23} value={editing.wake_time ?? 6} onChange={e => set("wake_time", Number(e.target.value))} />
+                  </div>
+                  <div>
+                    <Label>Lämnar hem kl</Label>
+                    <Input type="number" min={0} max={23} value={editing.leave_time ?? 7} onChange={e => set("leave_time", Number(e.target.value))} />
+                  </div>
+                  <div>
+                    <Label>Hem kl</Label>
+                    <Input type="number" min={0} max={23} value={editing.return_time ?? 17} onChange={e => set("return_time", Number(e.target.value))} />
+                  </div>
+                  <div>
+                    <Label>Sover kl</Label>
+                    <Input type="number" min={0} max={23} value={editing.sleep_time ?? 23} onChange={e => set("sleep_time", Number(e.target.value))} />
+                  </div>
+                </>
+              )}
 
               <div className="col-span-2 border-t pt-4 mt-2">
                 <h4 className="font-medium mb-3">Elbil</h4>
