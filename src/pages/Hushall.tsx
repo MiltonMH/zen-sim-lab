@@ -15,6 +15,9 @@ import { Slider } from "@/components/ui/slider";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { householdTypeMeta, type HouseholdType } from "@/lib/householdTypes";
+import { ROUTINES, resolveRoutine } from "@/lib/routineTypes";
+import { RoutineTimeline } from "@/components/RoutineTimeline";
+import { Switch } from "@/components/ui/switch";
 
 interface EvModel {
   id: string;
