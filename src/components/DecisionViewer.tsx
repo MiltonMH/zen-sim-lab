@@ -259,11 +259,12 @@ function DecisionChart({
     const isV2g = l.decision === "v2g";
     const kw = Number(l.charge_kw ?? 0);
     const reason = l.reason ?? "";
-    const isAway = /cable_disconnected|morning_guarantee/.test(reason);
+    const isAway = /cable_disconnected|away/i.test(reason);
+    const isWaiting = /no_action|similar|waiting/i.test(reason);
     const price = Number(l.spot_price_sek ?? 0);
     let pauseTone: "away" | "expensive" | "waiting" | null = null;
     if (l.decision === "pause") {
-      pauseTone = isAway ? "away" : price > priceThreshold ? "expensive" : "waiting";
+      pauseTone = isAway ? "away" : isWaiting ? "waiting" : "expensive";
     }
     return {
       hour: format(parseISO(l.logged_at), "HH:mm"),
@@ -367,11 +368,11 @@ function DecisionChart({
               yAxisId="house"
               type="monotone"
               dataKey="houseKw"
-              name="Husförbrukning kW"
+              name="Husförbrukning"
               fill="hsl(36, 83%, 70%)"
-              fillOpacity={0.3}
+              fillOpacity={0.2}
               stroke="hsl(36, 83%, 50%)"
-              strokeWidth={1.2}
+              strokeWidth={1.5}
               isAnimationActive={false}
               connectNulls
             />
@@ -442,7 +443,7 @@ function DecisionChart({
             <Bar dataKey={(d: any) => d.pauseTone ? 1 : 0} name="Paus" radius={[3, 3, 0, 0]}>
               {data.map((d, i) => {
                 const fill =
-                  d.pauseTone === "away" ? "hsl(220, 9%, 75%)" :
+                  d.pauseTone === "away" ? "hsl(220, 9%, 70%)" :
                   d.pauseTone === "expensive" ? "hsl(13, 68%, 63%)" :
                   d.pauseTone === "waiting" ? "hsl(220, 9%, 88%)" :
                   "transparent";
@@ -643,13 +644,15 @@ function prettyReason(r: string | null): string {
   if (!r) return "—";
   const map: Record<string, string> = {
     night_charge_planned: "Nattladdning — billigaste timmen",
-    v2h_planned: "V2H — dyrare än batterikostnaden",
     evening_peak_v2h: "Kvällstopp — V2H aktiverad",
     morning_v2h: "Morgon V2H — lönsamt",
+    v2h_planned: "V2H — dyrare än batterikostnaden",
     cable_disconnected: "Bilen borta",
-    morning_guarantee: "Morgongaranti — laddar",
+    morning_guarantee: "Morgongaranti — laddar till 80%",
     v2h_floor_reached: "Batterigolv nått — stoppar V2H",
     no_action: "Inväntar bättre pris",
+    night_pause: "Natt — laddning klar",
+    precharge_for_v2h: "Förladdar inför kvällens V2H",
     too_cheap_to_ignore: "Pris extremt lågt — ladda alltid",
     best_combined_score: "Bästa kombinerade poäng",
     soc_above_95_protect: "Batteri nästan fullt",
