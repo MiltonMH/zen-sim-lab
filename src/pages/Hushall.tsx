@@ -94,7 +94,7 @@ const HOUSE_TYPES = ["villa", "radhus", "lagenhet", "fritidshus"];
 const PRICE_AREAS = ["SE1", "SE2", "SE3", "SE4"];
 const HEATING = ["varmepump", "fjarrvarme", "direktel", "ved", "vattenburet_el"];
 const INSULATION = ["bra", "medium", "daligt"];
-const ROUTINE = ["pendlare", "hemma", "skiftarbete", "deltid"];
+const ROUTINE = ROUTINES.map(r => r.key);
 const FUSE_OPTIONS = [16, 20, 25, 35, 50, 63];
 
 // Nätbolag per prisområde — används för att filtrera dropdown
