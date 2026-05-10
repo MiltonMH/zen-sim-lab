@@ -123,6 +123,7 @@ export default function Hushall() {
   const [confirmDelete, setConfirmDelete] = useState<Household | null>(null);
   const [saving, setSaving] = useState(false);
   const [openFolder, setOpenFolder] = useState<HouseholdType | null>(null);
+  const [advancedTimes, setAdvancedTimes] = useState(false);
 
   const load = async () => {
     setLoading(true);
