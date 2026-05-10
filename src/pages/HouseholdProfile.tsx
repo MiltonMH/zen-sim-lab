@@ -17,6 +17,8 @@ import { Download, Trophy, TrendingUp, Wallet, Activity } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { modeLabel, OPTIMIZATION_MODES } from "@/lib/optimizationModes";
+import { resolveRoutine } from "@/lib/routineTypes";
+import { RoutineTimeline } from "@/components/RoutineTimeline";
 
 interface SimRow {
   id: string;
