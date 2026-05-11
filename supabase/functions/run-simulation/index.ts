@@ -197,11 +197,22 @@ Deno.serve(async (req) => {
       const month = Number(new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Stockholm", month: "numeric" }).format(d));
       const dow = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Stockholm", weekday: "short" }).format(d);
       const isWeekend = dow === "Sat" || dow === "Sun";
-      const match = tariffs.find(r =>
+      const inMonth = (r: Tariff) =>
+        r.month_from == null || r.month_to == null || (month >= r.month_from && month <= r.month_to);
+      // First try: exact match with weekend flag
+      let match = tariffs.find(r =>
         r.hour_of_day === hourOfDay &&
         r.is_weekend === isWeekend &&
-        (r.month_from == null || r.month_to == null || (month >= r.month_from && month <= r.month_to))
+        inMonth(r)
       );
+      // Fallback: ignore weekend flag if no match
+      if (!match) {
+        match = tariffs.find(r => r.hour_of_day === hourOfDay && inMonth(r));
+      }
+      // Final fallback: just match hour
+      if (!match) {
+        match = tariffs.find(r => r.hour_of_day === hourOfDay);
+      }
       return match ? Number(match.tariff_sek_kwh) : DEFAULT_GRID_TARIFF;
     }
 
