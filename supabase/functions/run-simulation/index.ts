@@ -769,7 +769,10 @@ Deno.serve(async (req) => {
         const curBase = baselineMonthlyPeak.get(monthKey) ?? 0;
         if (baselineGridKw > curBase) baselineMonthlyPeak.set(monthKey, baselineGridKw);
       }
+      }
+      console.log('Completed month', monthKey, ':', daysProcessed, 'days processed so far');
     }
+    if (timedOut) { /* partial flag already set */ }
 
     // Post-loop: beräkna effekttariff-besparing från baseline vs optimerad månads-peak
     if (mode === "smart_v2x" && hasPeakTariff) {
