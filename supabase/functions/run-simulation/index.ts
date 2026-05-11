@@ -69,7 +69,7 @@ Deno.serve(async (req) => {
     await supabase.from("simulation_runs").update({ status: "running" }).eq("id", simulation_id);
 
     // Soft timeout: if processing exceeds this, stop the day-loop and save partial results
-    const SIM_SOFT_TIMEOUT_MS = 25_000;
+    const SIM_SOFT_TIMEOUT_MS = 55_000;
     const simStartMs = Date.now();
     let partialSimulation = false;
     let daysProcessed = 0;
