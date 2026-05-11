@@ -286,16 +286,29 @@ Deno.serve(async (req) => {
       eventsBatch.push({ simulation_id, household_id: sim.household_id, ...e });
     }
 
+    // Group days by month so we can process in monthly chunks and
+    // log progress / save partial results between months.
+    const byMonth = new Map<string, string[]>();
     for (const day of sortedDays) {
-      if (Date.now() - simStartMs > SIM_SOFT_TIMEOUT_MS) {
-        partialSimulation = true;
-        console.warn(`⏱ soft-timeout after ${daysProcessed}/${sortedDays.length} days — saving partial`);
-        break;
-      }
-      const dayHours = byDay.get(day)!;
-      if (dayHours.length === 0) continue;
-      daysProcessed++;
-      const monthKey = day.slice(0, 7); // YYYY-MM
+      const m = day.slice(0, 7);
+      if (!byMonth.has(m)) byMonth.set(m, []);
+      byMonth.get(m)!.push(day);
+    }
+    const sortedMonths = Array.from(byMonth.keys()).sort();
+
+    let timedOut = false;
+    monthLoop: for (const monthKey of sortedMonths) {
+      const monthDays = byMonth.get(monthKey)!;
+      for (const day of monthDays) {
+        if (Date.now() - simStartMs > SIM_SOFT_TIMEOUT_MS) {
+          partialSimulation = true;
+          timedOut = true;
+          console.warn(`⏱ soft-timeout after ${daysProcessed}/${sortedDays.length} days (mid ${monthKey}) — saving partial`);
+          break monthLoop;
+        }
+        const dayHours = byDay.get(day)!;
+        if (dayHours.length === 0) continue;
+        daysProcessed++;
 
       // Diagnostic: log connected vs disconnected hours for first 3 days
       if (daysProcessed <= 3) {
