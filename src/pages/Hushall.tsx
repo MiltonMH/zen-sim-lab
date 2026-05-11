@@ -16,7 +16,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { householdTypeMeta, type HouseholdType } from "@/lib/householdTypes";
 import { ROUTINES, resolveRoutine } from "@/lib/routineTypes";
-import { RoutineTimeline } from "@/components/RoutineTimeline";
+import { RoutineCardPicker } from "@/components/RoutineCardPicker";
 import { Switch } from "@/components/ui/switch";
 
 interface EvModel {
@@ -368,311 +368,240 @@ export default function Hushall() {
       })()}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto font-poppins">
           <DialogHeader>
             <DialogTitle>{editing?.id ? "Redigera hushåll" : "Nytt hushåll"}</DialogTitle>
           </DialogHeader>
 
           {editing && (
-            <div className="grid grid-cols-2 gap-4 py-2">
-              <div className="col-span-2">
+            <div className="space-y-8 py-2">
+              {/* Namn */}
+              <div>
                 <Label>Namn</Label>
-                <Input value={editing.name ?? ""} onChange={e => set("name", e.target.value)} />
+                <Input
+                  className="mt-1.5"
+                  value={editing.name ?? ""}
+                  onChange={e => set("name", e.target.value)}
+                  placeholder="T.ex. Andersson Göteborg"
+                />
               </div>
 
-              <div>
-                <Label>Hustyp</Label>
-                <Select value={editing.house_type ?? "villa"} onValueChange={v => set("house_type", v)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {HOUSE_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Yta (m²)</Label>
-                <Input type="number" value={editing.area_m2 ?? ""} onChange={e => set("area_m2", Number(e.target.value) || null)} />
-              </div>
+              {/* SECTION 1: Bostaden */}
+              <section className="space-y-4">
+                <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Bostaden</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <Label>Hustyp</Label>
+                    <Select value={editing.house_type ?? "villa"} onValueChange={v => set("house_type", v)}>
+                      <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {HOUSE_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Yta (m²)</Label>
+                    <Input className="mt-1.5" type="number" value={editing.area_m2 ?? ""} onChange={e => set("area_m2", Number(e.target.value) || null)} />
+                  </div>
+                  <div>
+                    <Label>Byggår</Label>
+                    <Input className="mt-1.5" type="number" value={editing.build_year ?? ""} onChange={e => set("build_year", Number(e.target.value) || null)} />
+                  </div>
+                  <div>
+                    <Label>Isolering</Label>
+                    <Select value={editing.insulation_quality ?? "medium"} onValueChange={v => set("insulation_quality", v)}>
+                      <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {INSULATION.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Uppvärmning</Label>
+                    <Select value={editing.heating_type ?? "varmepump"} onValueChange={v => set("heating_type", v)}>
+                      <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {HEATING.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Årsförbrukning (kWh)</Label>
+                    <Input className="mt-1.5" type="number" value={editing.annual_kwh ?? ""} onChange={e => set("annual_kwh", Number(e.target.value) || null)} />
+                  </div>
+                  <div>
+                    <Label>Prisområde</Label>
+                    <Select
+                      value={editing.price_area ?? "SE3"}
+                      onValueChange={v => setEditing(prev => ({ ...(prev ?? {}), price_area: v, grid_company: "" }))}
+                    >
+                      <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {PRICE_AREAS.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Nätbolag <span className="text-destructive">*</span></Label>
+                    <Select
+                      value={editing.grid_company ?? ""}
+                      onValueChange={v => set("grid_company", v)}
+                    >
+                      <SelectTrigger className="mt-1.5"><SelectValue placeholder="Välj nätbolag" /></SelectTrigger>
+                      <SelectContent>
+                        {(GRID_COMPANIES_BY_AREA[editing.price_area ?? "SE3"] ?? []).map(c => (
+                          <SelectItem key={c} value={c}>
+                            {c}{tariffs[c] != null ? ` · ${tariffs[c]} SEK/kW` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {!editing.grid_company && (
+                      <p className="text-[11px] text-destructive mt-1">Krävs för effekttariff-beräkning</p>
+                    )}
+                  </div>
+                  <div>
+                    <Label>Huvudsäkring (A)</Label>
+                    <Select value={String(editing.fuse_amps ?? 20)} onValueChange={v => set("fuse_amps", Number(v))}>
+                      <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {FUSE_OPTIONS.map(a => <SelectItem key={a} value={String(a)}>{a} A</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </section>
 
-              <div>
-                <Label>Byggår</Label>
-                <Input type="number" value={editing.build_year ?? ""} onChange={e => set("build_year", Number(e.target.value) || null)} />
-              </div>
-              <div>
-                <Label>Prisområde</Label>
-                <Select
-                  value={editing.price_area ?? "SE3"}
-                  onValueChange={v => setEditing(prev => ({ ...(prev ?? {}), price_area: v, grid_company: "" }))}
-                >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {PRICE_AREAS.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
+              <div className="border-t border-border/60" />
 
-              <div>
-                <Label>Nätbolag <span className="text-destructive">*</span></Label>
-                <Select
-                  value={editing.grid_company ?? ""}
-                  onValueChange={v => set("grid_company", v)}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Välj nätbolag" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(GRID_COMPANIES_BY_AREA[editing.price_area ?? "SE3"] ?? []).map(c => (
-                      <SelectItem key={c} value={c}>
-                        {c}{tariffs[c] != null ? ` · ${tariffs[c]} SEK/kW` : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {!editing.grid_company && (
-                  <p className="text-[11px] text-destructive mt-1">Krävs för effekttariff-beräkning</p>
-                )}
-              </div>
-              <div>
-                <Label>Huvudsäkring (A)</Label>
-                <Select value={String(editing.fuse_amps ?? 20)} onValueChange={v => set("fuse_amps", Number(v))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {FUSE_OPTIONS.map(a => <SelectItem key={a} value={String(a)}>{a} A</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <Label>Uppvärmning</Label>
-                <Select value={editing.heating_type ?? "varmepump"} onValueChange={v => set("heating_type", v)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {HEATING.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Isolering</Label>
-                <Select value={editing.insulation_quality ?? "medium"} onValueChange={v => set("insulation_quality", v)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {INSULATION.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <Label>Årsförbrukning (kWh)</Label>
-                <Input type="number" value={editing.annual_kwh ?? ""} onChange={e => set("annual_kwh", Number(e.target.value) || null)} />
-              </div>
-              <div className="col-span-2">
+              {/* SECTION 2: Elbilen */}
+              <section className="space-y-4">
+                <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Elbilen</h4>
+                <div>
+                  <Label>Bilmodell</Label>
+                  <Select value={editing.ev_model_id ?? "none"} onValueChange={v => set("ev_model_id", v === "none" ? null : v)}>
+                    <SelectTrigger className="mt-1.5"><SelectValue placeholder="Välj bil" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">— Ingen bil —</SelectItem>
+                      {evModels.map(e => (
+                        <SelectItem key={e.id} value={e.id}>
+                          {e.brand} {e.model} ({e.battery_kwh} kWh){e.ccs2_port ? " · CCS2" : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Daglig körsträcka (km)</Label>
+                  <Input className="mt-1.5" type="number" value={editing.daily_km ?? ""} onChange={e => set("daily_km", Number(e.target.value) || null)} />
+                </div>
                 {(() => {
-                  const r = resolveRoutine(editing.routine_type);
+                  const minSoc = Number(editing.min_soc_pct ?? 40);
+                  const maxSoc = Number(editing.max_soc_pct ?? 80);
+                  const battery = Number(editing.battery_kwh ?? 0);
+                  const usableKwh = Math.max(0, (battery * (maxSoc - minSoc)) / 100);
                   return (
                     <>
-                      <Label>Rutintyp <span className="text-destructive">*</span></Label>
-                      <Select
-                        value={r.key}
-                        onValueChange={v => {
-                          const def = resolveRoutine(v);
-                          setEditing(prev => ({
-                            ...(prev ?? {}),
-                            routine_type: def.key,
-                            wake_time: def.wake_time,
-                            leave_time: def.leave_time,
-                            return_time: def.return_time,
-                            sleep_time: def.sleep_time,
-                          }));
-                        }}
-                      >
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {ROUTINES.map(opt => (
-                            <SelectItem key={opt.key} value={opt.key}>
-                              <div className="flex flex-col">
-                                <span>{opt.label}</span>
-                                <span className="text-[11px] text-muted-foreground">{opt.description}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <p className="text-[11px] text-muted-foreground mt-1.5">{r.description}</p>
-                      <div className="mt-3">
-                        <RoutineTimeline routine={r} />
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <Label className="mb-2 block">Min SoC</Label>
+                          <Slider min={20} max={60} step={5} value={[minSoc]} onValueChange={([v]) => set("min_soc_pct", v)} />
+                          <p className="text-xs text-muted-foreground mt-2">
+                            ZenOS laddar aldrig ur mer än <span className="font-semibold text-foreground">{minSoc}%</span>
+                          </p>
+                        </div>
+                        <div>
+                          <Label className="mb-2 block">Max SoC</Label>
+                          <Slider min={60} max={100} step={5} value={[maxSoc]} onValueChange={([v]) => set("max_soc_pct", v)} />
+                          <p className="text-xs text-muted-foreground mt-2">
+                            Laddar alltid till <span className="font-semibold text-foreground">{maxSoc}%</span>
+                          </p>
+                        </div>
+                      </div>
+                      <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/20 px-4 py-3 text-sm text-foreground">
+                        ZenOS kan använda <span className="font-semibold text-emerald-700 dark:text-emerald-400">{usableKwh.toFixed(1)} kWh</span> för V2H
                       </div>
                     </>
                   );
                 })()}
-              </div>
+              </section>
 
-              <div className="col-span-2">
+              <div className="border-t border-border/60" />
+
+              {/* SECTION 3: Rutin */}
+              <section className="space-y-4">
+                <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Rutin</h4>
+                <RoutineCardPicker
+                  value={editing.routine_type}
+                  onChange={(k) => {
+                    const def = resolveRoutine(k);
+                    setEditing(prev => ({
+                      ...(prev ?? {}),
+                      routine_type: def.key,
+                      wake_time: def.wake_time,
+                      leave_time: def.leave_time,
+                      return_time: def.return_time,
+                      sleep_time: def.sleep_time,
+                    }));
+                  }}
+                />
                 <div className="flex items-center justify-between rounded-md border bg-muted/30 px-3 py-2">
                   <div>
                     <Label className="cursor-pointer">Anpassa tider</Label>
-                    <p className="text-[11px] text-muted-foreground">Visa manuella tidsfält för avancerade användare</p>
+                    <p className="text-[11px] text-muted-foreground">Justera manuellt för avancerade användare</p>
                   </div>
                   <Switch checked={advancedTimes} onCheckedChange={setAdvancedTimes} />
                 </div>
-              </div>
-
-              <div>
-                <Label>Vuxna</Label>
-                <Input type="number" value={editing.adults ?? 0} onChange={e => set("adults", Number(e.target.value) || 0)} />
-              </div>
-              <div>
-                <Label>Barn</Label>
-                <Input type="number" value={editing.children ?? 0} onChange={e => set("children", Number(e.target.value) || 0)} />
-              </div>
-
-              {advancedTimes && (
-                <>
-                  <div>
-                    <Label>Vakna kl</Label>
-                    <Input type="number" min={0} max={23} value={editing.wake_time ?? 6} onChange={e => set("wake_time", Number(e.target.value))} />
-                  </div>
-                  <div>
-                    <Label>Lämnar hem kl</Label>
-                    <Input type="number" min={0} max={23} value={editing.leave_time ?? 7} onChange={e => set("leave_time", Number(e.target.value))} />
-                  </div>
-                  <div>
-                    <Label>Hem kl</Label>
-                    <Input type="number" min={0} max={23} value={editing.return_time ?? 17} onChange={e => set("return_time", Number(e.target.value))} />
-                  </div>
-                  <div>
-                    <Label>Sover kl</Label>
-                    <Input type="number" min={0} max={23} value={editing.sleep_time ?? 23} onChange={e => set("sleep_time", Number(e.target.value))} />
-                  </div>
-                </>
-              )}
-
-              <div className="col-span-2 border-t pt-4 mt-2">
-                <h4 className="font-medium mb-3">Elbil</h4>
-              </div>
-              <div className="col-span-2">
-                <Label>Bilmodell</Label>
-                <Select value={editing.ev_model_id ?? "none"} onValueChange={v => set("ev_model_id", v === "none" ? null : v)}>
-                  <SelectTrigger><SelectValue placeholder="Välj bil" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">— Ingen bil —</SelectItem>
-                    {evModels.map(e => (
-                      <SelectItem key={e.id} value={e.id}>
-                        {e.brand} {e.model} ({e.battery_kwh} kWh){e.ccs2_port ? " · CCS2" : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Daglig körsträcka (km)</Label>
-                <Input type="number" value={editing.daily_km ?? ""} onChange={e => set("daily_km", Number(e.target.value) || null)} />
-              </div>
-              <div>
-                <Label>Pendlartyp</Label>
-                <Select value={editing.commuter_type ?? "pendlare"} onValueChange={v => set("commuter_type", v)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {ROUTINE.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* SoC limits — universal engine boundaries */}
-              {(() => {
-                const minSoc = Number(editing.min_soc_pct ?? 40);
-                const maxSoc = Number(editing.max_soc_pct ?? 80);
-                const battery = Number(editing.battery_kwh ?? 0);
-                const usableKwh = Math.max(0, (battery * (maxSoc - minSoc)) / 100);
-                const bufferKm = Math.round(battery * (minSoc / 100) * 6);
-                return (
-                  <div className="col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 border-t pt-4 mt-2">
+                {advancedTimes && (
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <div>
-                      <Label className="mb-2 block">Lägsta batterinivå (ZenOS laddar aldrig ur mer)</Label>
-                      <Slider
-                        min={20} max={60} step={5}
-                        value={[minSoc]}
-                        onValueChange={([v]) => set("min_soc_pct", v)}
-                      />
-                      <p className="text-xs text-muted-foreground mt-2">
-                        {minSoc}% — bilen har alltid {((battery * minSoc) / 100).toFixed(1)} kWh kvar
-                      </p>
+                      <Label>Vakna kl</Label>
+                      <Input className="mt-1.5" type="number" min={0} max={23} value={editing.wake_time ?? 6} onChange={e => set("wake_time", Number(e.target.value))} />
                     </div>
                     <div>
-                      <Label className="mb-2 block">Högsta laddningsnivå</Label>
-                      <Slider
-                        min={60} max={100} step={5}
-                        value={[maxSoc]}
-                        onValueChange={([v]) => set("max_soc_pct", v)}
-                      />
-                      <p className="text-xs text-muted-foreground mt-2">
-                        {maxSoc}% — skyddar batteriet
-                      </p>
+                      <Label>Lämnar kl</Label>
+                      <Input className="mt-1.5" type="number" min={0} max={23} value={editing.leave_time ?? 7} onChange={e => set("leave_time", Number(e.target.value))} />
                     </div>
-                    <div className="col-span-1 md:col-span-2 rounded-xl bg-muted/40 px-4 py-3 text-xs text-muted-foreground space-y-1">
-                      <div>ZenOS kan använda <span className="font-semibold text-foreground">{usableKwh.toFixed(1)} kWh</span> för V2H</div>
-                      <div>Räcker för <span className="font-semibold text-foreground">{bufferKm} km</span> körning som buffert</div>
+                    <div>
+                      <Label>Hem kl</Label>
+                      <Input className="mt-1.5" type="number" min={0} max={23} value={editing.return_time ?? 17} onChange={e => set("return_time", Number(e.target.value))} />
+                    </div>
+                    <div>
+                      <Label>Sover kl</Label>
+                      <Input className="mt-1.5" type="number" min={0} max={23} value={editing.sleep_time ?? 23} onChange={e => set("sleep_time", Number(e.target.value))} />
                     </div>
                   </div>
-                );
-              })()}
+                )}
+              </section>
 
-              <div className="col-span-2 border-t pt-4 mt-2">
-                <h4 className="font-medium mb-3">Klassificering</h4>
-              </div>
+              {/* Klassificering — kept minimal */}
+              <div className="border-t border-border/60" />
               <div>
-                <Label>Typ</Label>
+                <Label>Mapp</Label>
                 <Select
                   value={(editing.household_type as string) ?? "seed"}
                   onValueChange={v => set("household_type", v)}
                 >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="seed">Referens (seed)</SelectItem>
                     <SelectItem value="training">Träningsdata</SelectItem>
                     <SelectItem value="real">Riktig kund</SelectItem>
                   </SelectContent>
                 </Select>
-                {(() => {
-                  const t = (editing.household_type as string) ?? "seed";
-                  const label =
-                    t === "seed" ? "Seed-data"
-                    : t === "training" ? "Träningsdata"
-                    : "Kunddata";
-                  return (
-                    <Badge className="mt-2 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-transparent">
-                      Taggas som: {label}
-                    </Badge>
-                  );
-                })()}
-              </div>
-              <div>
-                <Label>Datakvalitet</Label>
-                <Select
-                  value={editing.data_quality ?? "verified"}
-                  onValueChange={v => set("data_quality", v)}
-                >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="verified">Verifierad</SelectItem>
-                    <SelectItem value="generated">Genererad</SelectItem>
-                    <SelectItem value="needs_review">Behöver granskas</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="col-span-2">
-                <Label>Anteckningar</Label>
-                <Input
-                  value={editing.notes ?? ""}
-                  onChange={e => set("notes", e.target.value)}
-                  placeholder="Fri text om hushållet (valfritt)"
-                />
               </div>
             </div>
           )}
 
-          <DialogFooter>
+          <DialogFooter className="gap-2 sm:gap-2">
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Avbryt</Button>
-            <Button onClick={save} disabled={saving}>{saving ? "Sparar…" : "Spara"}</Button>
+            <Button
+              onClick={save}
+              disabled={saving}
+              className="rounded-full bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              {saving ? "Sparar…" : "Spara hushåll"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
