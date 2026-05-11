@@ -17,6 +17,7 @@ import { toast } from "@/hooks/use-toast";
 import { householdTypeMeta, type HouseholdType } from "@/lib/householdTypes";
 import { ROUTINES, resolveRoutine } from "@/lib/routineTypes";
 import { RoutineTimeline } from "@/components/RoutineTimeline";
+import { RoutineCardPicker } from "@/components/RoutineCardPicker";
 import { Switch } from "@/components/ui/switch";
 
 interface EvModel {
