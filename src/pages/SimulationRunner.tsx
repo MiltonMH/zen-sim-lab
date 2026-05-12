@@ -335,6 +335,7 @@ function BulkMode({ households, evMap, bounds }: {
   const [sharedMode, setSharedMode] = useState<string>("smart_v2x");
   const [sharedScenarios, setSharedScenarios] = useState([10]);
   const [perCfg, setPerCfg] = useState<Record<string, PerHouseholdConfig>>({});
+  const [bulkAreaFilter, setBulkAreaFilter] = useState<"all" | "SE1" | "SE2" | "SE3" | "SE4">("all");
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<Record<string, HouseholdProgress>>({});
   const [done, setDone] = useState(false);
