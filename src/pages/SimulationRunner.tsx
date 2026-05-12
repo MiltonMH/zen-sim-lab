@@ -230,7 +230,16 @@ function SingleMode({ households, evMap, bounds, preselectedHouseholdId }: {
             <SelectValue placeholder={households.length === 0 ? "No households yet" : "Choose a household"} />
           </SelectTrigger>
           <SelectContent>
-            {households.map(h => <SelectItem key={h.id} value={h.id}>{h.name}</SelectItem>)}
+            {(["SE1", "SE2", "SE3", "SE4"] as const).map(area => {
+              const inArea = households.filter(h => (h.price_area ?? "SE3") === area);
+              if (inArea.length === 0) return null;
+              return (
+                <SelectGroup key={area}>
+                  <SelectLabel>{area}</SelectLabel>
+                  {inArea.map(h => <SelectItem key={h.id} value={h.id}>{h.name}</SelectItem>)}
+                </SelectGroup>
+              );
+            })}
           </SelectContent>
         </Select>
       </Section>
