@@ -552,38 +552,73 @@ function BulkMode({ households, evMap, bounds }: {
   return (
     <Card className="max-w-[900px] mx-auto rounded-2xl border-border/60 shadow-card p-8 space-y-7">
       <Section title="Steg 1 — Välj hushåll">
-        <div className="flex gap-2 mb-3">
-          <Button variant="outline" size="sm" className="rounded-full"
-            onClick={() => setSelected(new Set(households.map(h => h.id)))}>Välj alla</Button>
-          <Button variant="outline" size="sm" className="rounded-full"
-            onClick={() => setSelected(new Set())}>Avmarkera alla</Button>
-          <span className="text-xs text-muted-foreground self-center ml-auto">
-            {selected.size} / {households.length} valda {allSelected && "(alla)"}
-          </span>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {households.map(h => {
-            const checked = selected.has(h.id);
-            const ev = h.ev_model_id ? evMap[h.ev_model_id] : undefined;
-            return (
-              <label key={h.id} htmlFor={`hh-${h.id}`}
-                className={cn(
-                  "flex items-start gap-3 rounded-xl border p-4 cursor-pointer transition-colors",
-                  checked ? "border-primary bg-primary-muted/40" : "border-border hover:bg-muted/40"
-                )}>
-                <Checkbox id={`hh-${h.id}`} checked={checked} onCheckedChange={() => toggle(h.id)} className="mt-0.5" />
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium truncate">{h.name}</div>
-                  <div className="flex flex-wrap gap-1.5 mt-1.5 text-[10px]">
-                    {(ev || h.car_model) && <span className="rounded-full bg-muted px-2 py-0.5">{ev ? `${ev.brand} ${ev.model}` : h.car_model}</span>}
-                    {ev?.ccs2_port !== false && <span className="rounded-full bg-emerald-500/15 text-emerald-700 px-2 py-0.5 font-semibold">CCS2</span>}
-                    {h.price_area && <span className="rounded-full bg-muted px-2 py-0.5">{h.price_area}</span>}
-                  </div>
-                </div>
-              </label>
-            );
-          })}
-        </div>
+        {(() => {
+          const areaCounts: Record<string, number> = { all: households.length, SE1: 0, SE2: 0, SE3: 0, SE4: 0 };
+          for (const h of households) {
+            const a = (h.price_area ?? "SE3");
+            if (a in areaCounts) areaCounts[a]++;
+          }
+          const filteredHouseholds = bulkAreaFilter === "all"
+            ? households
+            : households.filter(h => (h.price_area ?? "SE3") === bulkAreaFilter);
+          return (
+            <>
+              <div className="flex flex-wrap gap-2 mb-3">
+                {(["all", "SE1", "SE2", "SE3", "SE4"] as const).map(a => (
+                  <button
+                    key={a}
+                    type="button"
+                    onClick={() => setBulkAreaFilter(a)}
+                    className={cn(
+                      "text-xs px-3 py-1.5 rounded-full border transition-colors",
+                      bulkAreaFilter === a
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-background border-border hover:bg-muted"
+                    )}
+                  >
+                    {a === "all" ? "Alla zoner" : a} <span className="opacity-70 ml-1">({areaCounts[a]})</span>
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-2 mb-3">
+                <Button variant="outline" size="sm" className="rounded-full"
+                  onClick={() => setSelected(prev => {
+                    const next = new Set(prev);
+                    filteredHouseholds.forEach(h => next.add(h.id));
+                    return next;
+                  })}>Välj synliga</Button>
+                <Button variant="outline" size="sm" className="rounded-full"
+                  onClick={() => setSelected(new Set())}>Avmarkera alla</Button>
+                <span className="text-xs text-muted-foreground self-center ml-auto">
+                  {selected.size} / {households.length} valda {allSelected && "(alla)"}
+                </span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {filteredHouseholds.map(h => {
+                  const checked = selected.has(h.id);
+                  const ev = h.ev_model_id ? evMap[h.ev_model_id] : undefined;
+                  return (
+                    <label key={h.id} htmlFor={`hh-${h.id}`}
+                      className={cn(
+                        "flex items-start gap-3 rounded-xl border p-4 cursor-pointer transition-colors",
+                        checked ? "border-primary bg-primary-muted/40" : "border-border hover:bg-muted/40"
+                      )}>
+                      <Checkbox id={`hh-${h.id}`} checked={checked} onCheckedChange={() => toggle(h.id)} className="mt-0.5" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate">{h.name}</div>
+                        <div className="flex flex-wrap gap-1.5 mt-1.5 text-[10px]">
+                          {(ev || h.car_model) && <span className="rounded-full bg-muted px-2 py-0.5">{ev ? `${ev.brand} ${ev.model}` : h.car_model}</span>}
+                          {ev?.ccs2_port !== false && <span className="rounded-full bg-emerald-500/15 text-emerald-700 px-2 py-0.5 font-semibold">CCS2</span>}
+                          {h.price_area && <span className="rounded-full bg-muted px-2 py-0.5">{h.price_area}</span>}
+                        </div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            </>
+          );
+        })()}
       </Section>
 
       <Section title="Steg 2 — Konfigurera">
