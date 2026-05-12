@@ -299,12 +299,34 @@ export default function Hushall() {
         }
 
         // ====== FOLDER DETAIL VIEW ======
-        const filtered = items.filter(h => (h.household_type ?? "training") === openFolder);
+        const inFolder = items.filter(h => (h.household_type ?? "training") === openFolder);
+        const areaCounts: Record<string, number> = { all: inFolder.length, SE1: 0, SE2: 0, SE3: 0, SE4: 0 };
+        for (const h of inFolder) {
+          const a = (h.price_area ?? "SE3") as "SE1" | "SE2" | "SE3" | "SE4";
+          if (a in areaCounts) areaCounts[a]++;
+        }
+        const filtered = areaFilter === "all" ? inFolder : inFolder.filter(h => (h.price_area ?? "SE3") === areaFilter);
         return (
           <div className="space-y-4">
             <Button variant="ghost" size="sm" className="gap-1 -ml-2" onClick={() => setOpenFolder(null)}>
               <ChevronLeft className="h-4 w-4" /> Tillbaka till mappar
             </Button>
+
+            <div className="flex flex-wrap gap-2">
+              {(["all", "SE1", "SE2", "SE3", "SE4"] as const).map(a => (
+                <button
+                  key={a}
+                  onClick={() => setAreaFilter(a)}
+                  className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
+                    areaFilter === a
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-background border-border hover:bg-muted"
+                  }`}
+                >
+                  {a === "all" ? "Alla zoner" : a} <span className="opacity-70 ml-1">({areaCounts[a]})</span>
+                </button>
+              ))}
+            </div>
 
             {filtered.length === 0 ? (
               <Card className="p-10 text-center text-sm text-muted-foreground">
