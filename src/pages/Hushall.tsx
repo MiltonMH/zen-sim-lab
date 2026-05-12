@@ -124,6 +124,7 @@ export default function Hushall() {
   const [saving, setSaving] = useState(false);
   const [openFolder, setOpenFolder] = useState<HouseholdType | null>(null);
   const [advancedTimes, setAdvancedTimes] = useState(false);
+  const [areaFilter, setAreaFilter] = useState<"all" | "SE1" | "SE2" | "SE3" | "SE4">("all");
 
   const load = async () => {
     setLoading(true);
