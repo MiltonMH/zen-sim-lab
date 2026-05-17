@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import siteLogo from "@/assets/site-logo.png";
 
 export default function Login() {
   const [email, setEmail] = useState("");
