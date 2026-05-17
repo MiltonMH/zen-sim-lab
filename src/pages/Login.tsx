@@ -28,7 +28,7 @@ export default function Login() {
       <Card className="w-full max-w-md rounded-2xl border-border/60 shadow-card p-10">
         <div className="flex flex-col items-center mb-8">
           <div className="flex items-center gap-2.5 mb-1">
-            <span className="h-2.5 w-2.5 rounded-full bg-primary animate-pulse-dot" />
+            <img src={siteLogo} alt="ZenOS Lab" className="h-9 w-9" />
             <span className="font-semibold text-xl tracking-tight">ZenOS Lab</span>
           </div>
           <p className="text-sm text-muted-foreground mt-2">Internal simulation platform</p>

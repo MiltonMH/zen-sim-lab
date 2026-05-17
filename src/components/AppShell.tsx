@@ -10,6 +10,7 @@ import Simulering from "@/pages/Simulering";
 import ResultatLoggar from "@/pages/ResultatLoggar";
 import Hushall from "@/pages/Hushall";
 import MLAnalys from "@/pages/MLAnalys";
+import siteLogo from "@/assets/site-logo.png";
 
 type View = "overview" | "data" | "hushall" | "simulering" | "ml" | "resultat";
 
@@ -97,7 +98,7 @@ export default function AppShell() {
     <>
       <div className="px-6 pt-7 pb-8 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2.5">
-          <span className="h-2.5 w-2.5 rounded-full bg-primary animate-pulse-dot" />
+          <img src={siteLogo} alt="ZenOS Lab" className="h-7 w-7" />
           <span className="font-semibold text-[17px] tracking-tight text-sidebar-foreground">ZenOS Lab</span>
         </div>
         <button
