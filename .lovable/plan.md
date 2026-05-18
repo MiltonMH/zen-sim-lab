@@ -1,55 +1,92 @@
+# Visuell uppfräschning – Nordisk minimalism
 
-## Context
+Ett helhetsgrepp om designen så att ZenOS Lab känns lugnare, mer pålitlig och lättare att förstå för en förstagångsbesökare. Inspiration: Swiss/nordisk minimalism – mycket whitespace, papper & bläck, en tydlig accent (Zenion-grön), strikt typografi.
 
-The user asks to "call the same edge function `import-spot-prices` with `{ year: 2025 }`" — but no such edge function exists in the project. The current Import Data page (`src/pages/ImportData.tsx`) imports spot prices **client-side**, looping day-by-day against `https://www.elprisetjustnu.se/api/v1/prices/{YYYY}/{MM-DD}_SE3.json` and inserting into `spot_prices` in chunks of 500.
+## Mål
 
-So "the same edge function" doesn't exist yet. Two ways forward — I recommend Option A as the smallest, safest change that delivers what the user actually wants (2025 data in the table).
+- Förstagångsbesökaren förstår direkt vad appen gör.
+- Mindre visuellt brus: färre färger, lugnare ytor, tydligare hierarki.
+- Konsekvent designsystem i hela appen (inga ad-hoc-färger i komponenter).
 
-## Option A (recommended) — Extend the existing client-side import to support 2025
+## Designspråk
 
-Smallest change, no new infrastructure, matches what's already working.
-
-### Changes to `src/pages/ImportData.tsx`
-
-1. **Add a year selector** (Select component, options: `2024`, `2025`) above the import button. Default: `2025`.
-2. **Replace the hardcoded `YEAR = 2024`** with state (`selectedYear`).
-3. **Update button label** to reflect chosen year: `Import {selectedYear} ({daysInYear(selectedYear).length} days)`.
-4. **Pass `selectedYear`** into `runImport` and `runTest` (test fetches Jan 1 of selected year).
-5. **Guard against future days**: when importing 2025, the API only returns days that have been published. Skip 404s gracefully (already handled — keep behavior, just keep the warning log).
-6. **Show row count after import** unchanged. Toast on completion.
-
-### UX after change
+**Palett (nordisk minimalism + Zenion-accent)**
 
 ```text
-┌──────────────────────────────────────┐
-│ Import spot prices                   │
-│ Year: [2025 ▼]                       │
-│ [Test API connection]                │
-│ [⬇ Import 2025 (365 days)]           │
-└──────────────────────────────────────┘
+Bakgrund        #F5F3EE   varm off-white (papper)
+Yta / kort      #FFFFFF
+Mjuk yta        #E8E4DD   sektionsavdelare, muted
+Text primär     #2D2D2D   bläck
+Text muted      #6B6B6B
+Accent          #1D9A85   Zenion-grön (sparsamt, bara CTA/status)
+Linje           #E2DED5
 ```
 
-### Result
+**Typografi**
 
-After running for 2025 (and given 2024 was already imported), `spot_prices` will hold ~8,784 (2024, leap year) + ~8,760 (2025, full year if past year-end, otherwise fewer up to today) ≈ **~17,520 rows**.
+- Behåll Poppins som body.
+- Lägg till ett serif-display för rubriker (Instrument Serif eller Fraunces) – ger redaktionell, nordisk känsla utan att bli stelt.
+- Tydligare skalor: h1 36–44px, h2 24–28px, body 14–15px, micro 11–12px uppercase tracking.
 
-### Notes / caveats
+**Yta & rytm**
 
-- No deduplication logic exists today; if the user clicks Import 2024 again, duplicates would be inserted. Not changing this now (out of scope), but worth flagging.
-- 2025 days that haven't been published yet by elprisetjustnu.se will be skipped (HTTP 404), which is fine.
+- Större luft mellan sektioner (py-12 mellan block, py-6 inom).
+- Tunnare linjer (1px `border-border/60`) istället för skuggor på de flesta ytor.
+- Border-radius nedjusterat: kort 12px, knappar pill behålls för CTA, övriga 8px.
+- Skuggor: nästan inga – bara `shadow-soft` på CTA och elevated cards.
 
----
+## Vad som ändras konkret
 
-## Option B — Actually create the `import-spot-prices` edge function
+### 1. Designsystem (`src/index.css`, `tailwind.config.ts`)
 
-Only worth doing if you want server-side imports (e.g. scheduled, no browser tab needed). More work; not needed to get 2025 data in.
+- Uppdatera CSS-variablerna till paletten ovan (HSL).
+- Lägg till `--font-display` för serif-rubriker, ladda via `index.html`.
+- Lägg till hjälpklasser: `.section-label` (uppercase 11px tracking-wider muted), `.display` (serif rubriker).
 
-Would create `supabase/functions/import-spot-prices/index.ts` that accepts `{ year: number }`, loops days, fetches from elprisetjustnu, and bulk-inserts using the service role key. Then the page would call `supabase.functions.invoke("import-spot-prices", { body: { year: 2025 } })`.
+### 2. Sidebar (`AppShell.tsx`)
 
----
+- Tunnare sidebar (w-60), mer luft i toppen runt loggan.
+- Navigationsknappar: byt pill-fyllning till en diskret vänsterkant-accent + lätt bakgrund för aktiv vy. Mindre färgglatt.
+- "Sign out" och e-post grupperas i en stilrenare footer.
 
-## Recommendation
+### 3. Login (`Login.tsx`)
 
-Go with **Option A**. It's a ~30-line change to one file, reuses the proven client-side path, and gets 2025 data into the table immediately.
+- Tvådelad layout på desktop: vänster sida med stort serif-citat / tagline ("Simulera energiframtiden."), höger sida med formuläret på papper-yta.
+- Mindre kort, mer luft.
 
-Approve and I'll implement Option A. If you'd rather have the edge function (Option B), say so and I'll build that instead.
+### 4. Översikt (`Overview.tsx`)
+
+- Lägg till en **välkomst-header** överst: serif-rubrik + en menings-sammanfattning av vad appen visar, plus 3 snabblänkar (Importera data → Skapa hushåll → Kör simulering).
+- KPI-korten görs platta: vit yta, tunn linje, stor siffra i serif, label i uppercase. Inga färgade ikon-badges – ikonen är monokrom muted.
+- Grafer: reducera paletten till grön + neutralgrå + en varm accent (terrakotta) för varningar. Ta bort lila/blå/orange-mixen.
+- Sektioner separeras med tunna linjer + section-labels ("01 — Aktivitet", "02 — Utmaningar") istället för många kort som tävlar om uppmärksamhet.
+
+### 5. Tomma tillstånd
+
+- När det inte finns hushåll/simuleringar: visa en lugn, centrerad illustration + en mening + en CTA. Idag möts nya användare av tomma tabeller.
+
+### 6. Övriga sidor (Hushåll, Simulering, Resultat)
+
+- Samma uppdaterade tokens slår igenom automatiskt.
+- Sidrubriker görs konsekventa: serif h1 + muted underrubrik + tunn linje under.
+- Tabs och pill-knappar dämpas (muted bg, accent bara för aktivt val).
+
+## Teknisk sammanfattning
+
+Filer som rörs:
+
+- `src/index.css` – nya HSL-tokens, font-imports, hjälpklasser.
+- `tailwind.config.ts` – `fontFamily.display`, ev. extra spacing.
+- `index.html` – Google Fonts-länk för Instrument Serif (eller Fraunces).
+- `src/components/AppShell.tsx` – sidebar-layout & nav-styling.
+- `src/pages/Login.tsx` – split layout.
+- `src/pages/Overview.tsx` – välkomst-header, plattare KPI-kort, dämpad grafpalett, section-labels.
+- Mindre justeringar: `Hushall.tsx`, `Simulering.tsx`, `ResultatLoggar.tsx` – sidrubriker + ev. empty states.
+
+Inga ändringar i affärslogik, databas eller edge functions. Inga nya beroenden utöver Google Font.
+
+## Utanför scope (kan tas separat)
+
+- Guidad tour / tooltips för onboarding.
+- Mörkt läge.
+- Animationer/motion utöver befintliga.
