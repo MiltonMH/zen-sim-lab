@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import random as _random
+import traceback
 from datetime import date as _date
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -49,18 +50,32 @@ _STOCKHOLM = ZoneInfo("Europe/Stockholm")
 
 
 def run_simulation(simulation_id: str) -> dict:
-    """Run a full simulation for the given simulation_runs.id."""
+    """Run a full simulation for the given simulation_runs.id.
+
+    Wraps _run_simulation() so that any unhandled exception prints a full
+    traceback before re-raising — useful when the caller catches exceptions
+    silently (e.g. run_batch_sim.py).
+    """
+    try:
+        return _run_simulation(simulation_id)
+    except Exception:
+        traceback.print_exc()
+        raise
+
+
+def _run_simulation(simulation_id: str) -> dict:
+    """Internal implementation — call run_simulation() from outside."""
     db = get_client()
 
     # ── SIM-1: load simulation run, mark running ──────────────────────────────
-    sim = (
+    _sim_resp = (
         db.table("simulation_runs")
         .select("*")
         .eq("id", simulation_id)
         .maybe_single()
         .execute()
-        .data
     )
+    sim = _sim_resp.data if _sim_resp is not None else None
     if not sim:
         raise ValueError(f"simulation_run {simulation_id} not found")
     db.table("simulation_runs").update({"status": "running"}).eq("id", simulation_id).execute()
@@ -69,14 +84,14 @@ def run_simulation(simulation_id: str) -> dict:
     sp = sim.get("scenario_params") or {}
 
     # ── SIM-2: household ──────────────────────────────────────────────────────
-    hh_row = (
+    _hh_resp = (
         db.table("household_profiles")
         .select("*")
         .eq("id", sim["household_id"])
         .maybe_single()
         .execute()
-        .data
     )
+    hh_row = _hh_resp.data if _hh_resp is not None else None
     if not hh_row:
         db.table("simulation_runs").update({"status": "failed"}).eq("id", simulation_id).execute()
         raise ValueError("Household not found")
@@ -102,14 +117,14 @@ def run_simulation(simulation_id: str) -> dict:
     ccs2_port = True
 
     if hh.ev_model_id:
-        ev_row = (
+        _ev_resp = (
             db.table("ev_models")
             .select("ccs2_port, max_dc_charge_kw, max_v2x_discharge_kw, battery_kwh, brand, model")
             .eq("id", hh.ev_model_id)
             .maybe_single()
             .execute()
-            .data
         )
+        ev_row = _ev_resp.data if _ev_resp is not None else None
         if ev_row:
             ccs2_port = ev_row.get("ccs2_port") is not False
             if ev_row.get("max_dc_charge_kw") is not None:
@@ -177,14 +192,14 @@ def run_simulation(simulation_id: str) -> dict:
             .data or []
         )
         tariffs = [GridTariff.from_row(r) for r in t_rows]
-        gcs_row = (
+        _gcs_resp = (
             db.table("grid_company_settings")
             .select("*")
             .eq("grid_company", hh.grid_company)
             .maybe_single()
             .execute()
-            .data
         )
+        gcs_row = _gcs_resp.data if _gcs_resp is not None else None
         if gcs_row:
             gcs = GridCompanySettings.from_row(gcs_row)
         else:
@@ -424,6 +439,7 @@ def run_simulation(simulation_id: str) -> dict:
                 "grid_tariff_sek": round(h.grid_tariff, 4),
                 "energy_tax_sek": ENERGY_TAX_SEK,
                 "total_cost_per_kwh": round(h.total_cost, 4),
+                "scenario_type": scenario_name,
             })
 
             # ── SIM-10: event detection ────────────────────────────────────────

@@ -126,6 +126,17 @@ def _get_households(args: argparse.Namespace, db) -> list[dict]:
     )
     if not rows:
         sys.exit("ERROR: Inga rader i household_profiles")
+
+    if args.exclude_ids:
+        excluded  = set(args.exclude_ids)
+        all_ids   = {r["id"] for r in rows}
+        rows      = [r for r in rows if r["id"] not in excluded]
+        n_removed = len(all_ids) - len(rows)
+        if n_removed:
+            print(f"  Utesluter {n_removed} hushåll via --exclude-id")
+        for eid in excluded - all_ids:
+            print(f"  Varning: --exclude-id {eid} matchade inget hushåll")
+
     return rows
 
 
@@ -202,6 +213,12 @@ def _build_parser() -> argparse.ArgumentParser:
     hh.add_argument("--all-households", action="store_true",
                     help="Alla hushåll i household_profiles (default)")
 
+    parser.add_argument(
+        "--exclude-id", metavar="UUID", action="append", dest="exclude_ids",
+        default=[],
+        help="Uteslut hushåll med detta ID (kan anges flera gånger)",
+    )
+
     # Läge
     parser.add_argument(
         "--mode",
@@ -270,6 +287,8 @@ def main() -> None:
     print(f"  Period     : {label}  ({from_str} → {to_str})")
     print(f"  Hushåll    : {len(households)}")
     print(f"  Lägen      : {', '.join(modes)}")
+    if args.exclude_ids:
+        print(f"  Exkluderade: {', '.join(args.exclude_ids)}")
     print(f"  Simulationer: {total}")
     if scenario_params:
         print(f"  Scenario   : {scenario_params}")
