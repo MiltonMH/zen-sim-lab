@@ -381,6 +381,25 @@ print("\n── STEP 5 · Target variable + reward ─────────�
 df = build_targets(df)
 print(f"  Targets built — {len(df):,} rows remain after label mapping")
 
+# Remove SoC floor violations
+floor_violations = (
+    (df['decision_label'] == 2) &
+    (df['soc_pct'] < df['min_soc_pct'])
+)
+n_floor = floor_violations.sum()
+df = df[~floor_violations]
+print(f"  Removed {n_floor} V2H-below-floor violations")
+
+# Remove negative spread V2H
+if 'reason' in df.columns:
+    neg_spread = (
+        (df['decision_label'] == 2) &
+        (df['reason'].str.contains('spread +-', na=False, regex=False))
+    )
+    n_neg = neg_spread.sum()
+    df = df[~neg_spread]
+    print(f"  Removed {n_neg} negative-spread V2H decisions")
+
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 6 — Combine with existing training_data.parquet
 # ══════════════════════════════════════════════════════════════════════════════

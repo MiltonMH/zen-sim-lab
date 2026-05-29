@@ -823,52 +823,115 @@ elif page == "ML-analys":
 
     # ── TAB 2 — SoC-analys ───────────────────────────────────────────────────
     with tab2:
-        if "soc_pct" not in df_ml.columns or "decision" not in df_ml.columns:
+        if "soc_pct" not in df_ml.columns or "hour_of_day" not in df_ml.columns:
             st.info("Nödvändiga kolumner saknas.")
         else:
             st.markdown(
-                f'<p class="section-header">{icon("battery", 16)} SoC vs beslut</p>',
+                f'<p class="section-header">{icon("battery", 16)} SoC-profil under dygnet</p>',
                 unsafe_allow_html=True,
             )
 
-            fig_strip = px.strip(
-                df_ml.sample(min(len(df_ml), 8000), random_state=42),
-                x="soc_pct", y="decision",
-                color="decision", color_discrete_map=DECISION_COLORS,
-                labels={"soc_pct": "SoC (%)", "decision": "Beslut"},
-                title="Vid vilken SoC tar systemet vilket beslut?",
-            )
-            fig_strip.update_traces(jitter=0.4, marker_size=3, marker_opacity=0.4)
-            st.plotly_chart(fig_strip, use_container_width=True)
+            leave_med   = int(df_ml["leave_time"].median())   if "leave_time"   in df_ml.columns else 7
+            return_med  = int(df_ml["return_time"].median())  if "return_time"  in df_ml.columns else 17
+            sleep_med   = int(df_ml["sleep_time"].median())   if "sleep_time"   in df_ml.columns else 23
+            min_soc_med = float(df_ml["min_soc_pct"].median()) if "min_soc_pct" in df_ml.columns else 40.0
 
-            fig_hist = px.histogram(
-                df_ml, x="soc_pct", color="decision",
-                color_discrete_map=DECISION_COLORS, nbins=50, barmode="overlay",
-                opacity=0.7,
-                labels={"soc_pct": "SoC (%)", "count": "Antal", "decision": "Beslut"},
-                title="SoC-distribution per beslut",
+            # ── 1. Average SoC per hour ──────────────────────────────────────
+            avg_soc = (
+                df_ml.groupby("hour_of_day")["soc_pct"]
+                .mean()
+                .reset_index(name="avg_soc")
             )
-            fig_hist.update_layout(legend_title_text="Beslut")
-            st.plotly_chart(fig_hist, use_container_width=True)
+            fig_soc = px.line(
+                avg_soc, x="hour_of_day", y="avg_soc",
+                labels={"hour_of_day": "Timme", "avg_soc": "Genomsnittlig SoC (%)"},
+                title="Genomsnittlig SoC per timme på dygnet",
+                height=300,
+            )
+            fig_soc.update_traces(line_color="#10b981", line_width=2.5)
+            fig_soc.update_layout(xaxis=dict(tickmode="linear", tick0=0, dtick=1))
+            fig_soc.add_hline(
+                y=40, line_color="#ef4444", line_dash="solid", line_width=1.5,
+                annotation_text="SoC-golv", annotation_position="bottom right",
+                annotation_font_color="#ef4444", annotation_font_size=11,
+            )
+            fig_soc.add_hline(
+                y=100, line_color="#4ade80", line_dash="dash", line_width=1,
+                annotation_text="Målnivå", annotation_position="bottom right",
+                annotation_font_color="#4ade80", annotation_font_size=11,
+            )
+            for x_val, vline_label in [
+                (leave_med,  "Familjen åker"),
+                (return_med, "Familjen kommer hem"),
+                (sleep_med,  "Läggdags / start laddning"),
+            ]:
+                fig_soc.add_vline(
+                    x=x_val, line_dash="dot",
+                    line_color="rgba(255,255,255,0.4)", line_width=1,
+                    annotation_text=vline_label, annotation_position="top right",
+                    annotation_font_color="#9ca3af", annotation_font_size=10,
+                )
+            st.plotly_chart(fig_soc, use_container_width=True, config={"displayModeBar": False})
+            st.caption(
+                "Visar hur batterinivån rör sig under ett typiskt dygn. "
+                "Röd linje = absolut golv (40%). Grön = fulladdad."
+            )
 
             st.divider()
-            n_total = len(df_ml)
-            n_soc_viol  = int(df_ml["soc_violation"].sum())  if "soc_violation"  in df_ml.columns else 0
-            n_morn_fail = int(df_ml["morning_failure"].sum()) if "morning_failure" in df_ml.columns else 0
 
-            kp1, kp2 = st.columns(2)
-            kp1.metric(
-                "SoC-brott (under min_soc)",
-                f"{n_soc_viol:,}",
-                delta=f"{n_soc_viol / n_total * 100:.1f}% av alla rader",
-                delta_color="inverse",
+            # ── 2. Leave / return histograms ─────────────────────────────────
+            df_leave  = df_ml[df_ml["hour_of_day"] == leave_med]
+            df_return = df_ml[df_ml["hour_of_day"] == return_med]
+            daily_km  = int(df_ml["daily_km"].median()) if "daily_km" in df_ml.columns else None
+
+            hcol1, hcol2 = st.columns(2)
+            with hcol1:
+                st.markdown(
+                    f'<p class="section-header">{icon("trending-up", 16)} SoC vid avresa</p>',
+                    unsafe_allow_html=True,
+                )
+                fig_leave = px.histogram(
+                    df_leave, x="soc_pct", nbins=40,
+                    labels={"soc_pct": "SoC (%)"},
+                    title="SoC när familjen åker — är bilen alltid full?",
+                    color_discrete_sequence=["#F59E0B"],
+                )
+                fig_leave.add_vline(
+                    x=min_soc_med, line_color="#ef4444", line_dash="dash",
+                    annotation_text="min SoC",
+                    annotation_font_color="#ef4444", annotation_font_size=10,
+                )
+                fig_leave.update_layout(showlegend=False)
+                st.plotly_chart(fig_leave, use_container_width=True, config={"displayModeBar": False})
+
+            with hcol2:
+                st.markdown(
+                    f'<p class="section-header">{icon("trending-up", 16)} SoC vid hemkomst</p>',
+                    unsafe_allow_html=True,
+                )
+                fig_return = px.histogram(
+                    df_return, x="soc_pct", nbins=40,
+                    labels={"soc_pct": "SoC (%)"},
+                    title="SoC när familjen kommer hem",
+                    color_discrete_sequence=["#3B82F6"],
+                )
+                fig_return.update_layout(showlegend=False)
+                st.plotly_chart(fig_return, use_container_width=True, config={"displayModeBar": False})
+                km_str = f"{daily_km} km" if daily_km else "körda km"
+                st.caption(f"Lägre SoC är normalt — bilen har körts {km_str}")
+
+            st.divider()
+
+            # ── 3. KPIs ───────────────────────────────────────────────────────
+            morning_pct = (
+                (df_leave["soc_pct"] >= 95).mean() * 100 if len(df_leave) else 0.0
             )
-            kp2.metric(
-                "Morgonfel (ej full vid avresa)",
-                f"{n_morn_fail:,}",
-                delta=f"{n_morn_fail / n_total * 100:.1f}% av alla rader",
-                delta_color="inverse",
-            )
+            return_avg = df_return["soc_pct"].mean() if len(df_return) else 0.0
+
+            kp1, kp2, kp3 = st.columns(3)
+            kp1.metric("Morgongaranti (≥ 95% vid avresa)", f"{morning_pct:.1f}%")
+            kp2.metric("SoC vid hemkomst (snitt)",          f"{return_avg:.1f}%")
+            kp3.metric("Natt-laddning start (median)",      f"{sleep_med:02d}:00")
 
     # ── TAB 3 — Prisrespons ──────────────────────────────────────────────────
     with tab3:

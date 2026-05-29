@@ -135,13 +135,17 @@ def decide_hour(
             and soc > v2h_soc_floor
             and house_kw > 0.05
         ):
+            if soc <= v2h_soc_floor + 2.0:
+                return DecisionResult("pause", "v2h_blocked_soc_floor", 0.0, 0.0, house_kw)
             v2h_max_kw = min(ARC_MAX_KW, ev.max_v2x_discharge_kw)
             # Cap to actual house load — V2H cannot export to grid; fuse not a constraint
             # for discharge direction since we reduce grid draw, not increase it.
             discharge_kw = min(v2h_max_kw, house_kw)
             if discharge_kw > 0.2:
                 spread = h.total_cost - avg_charge_cost
-                saving = discharge_kw * max(0.0, spread)
+                if spread <= 0:
+                    return DecisionResult("pause", "v2h_blocked_negative_spread", 0.0, 0.0, house_kw)
+                saving = discharge_kw * spread
                 grid_kw = max(0.0, house_kw - discharge_kw)
                 return DecisionResult(
                     "v2h",
@@ -177,6 +181,11 @@ def decide_hour(
         and h.price > daily_avg_price * 1.2
         and soc > 40.0
     ):
+        if soc <= v2h_soc_floor + 2.0:
+            return DecisionResult("pause", "v2h_blocked_soc_floor", 0.0, 0.0, house_kw)
+        spread = h.price - avg_charge_cost
+        if spread <= 0:
+            return DecisionResult("pause", "v2h_blocked_negative_spread", 0.0, 0.0, house_kw)
         v2h_max_kw = min(ARC_MAX_KW, ev.max_v2x_discharge_kw)
         discharge_kw = min(7.0, v2h_max_kw, house_kw)
         saving = discharge_kw * h.price
